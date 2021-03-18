@@ -281,9 +281,9 @@ class CountryLookup:
             except: 
                 pass
         
-        if geoName in self.land_recs: 
+        if geoName.title() in self.land_recs: 
             geotype='Land'
-        elif geoName in self.ocean_recs: 
+        elif geoName.title() in self.ocean_recs: 
             geotype='Ocean'
         
         return [geo, geotype]
@@ -322,6 +322,8 @@ class CountryLookup:
         
         # make sure that we are not modifying the original dataframe
         df = df.copy()
+        
+        df.dropna(subset=[valcol], inplace=True)
 
         # drop ocean rows if not plotting them
         if not plot_ocean:
@@ -336,32 +338,41 @@ class CountryLookup:
             'Ocean': {
                 'edgecolor': 'lightgray',
                 'linestyle': ':',
-                'lw': .5
+                'lw': 1
             },
-            'Land': {}
+            'Land': {
+                'edgecolor': 'black',
+                'linestyle': '-',
+                'lw': 1
+            }
         }
         
         # create map        
         self.add_ocean_borders(ax=ax_map)
         for _, row in df.iterrows():
             geos = row[geocol]
+            if not isinstance(geos, list):
+                continue
 
-            for geo in geos: # to handle oc
-                ax_map.add_feature(
-                    ShapelyFeature(
-                        [geo],
-                        ccrs.PlateCarree(),
-                        facecolor=row['color'],
-                        **shape_style[row['geotype']],
-                        **plot_args
+            for geo in geos: # to handle oceans
+                try:
+                    ax_map.add_feature(
+                        ShapelyFeature(
+                            [geo],
+                            ccrs.PlateCarree(),
+                            facecolor=row['color'],
+                            **shape_style[row['geotype']],
+                            **plot_args
+                        )
                     )
-                )
+                except KeyError:
+                    print(row)
         # pretty map axis
         ax_map.background_patch.set_visible(False)
         ax_map.outline_patch.set_visible(False)
         
         # add borders and coastlines
-        ax_map.coastlines(lw=.5)
+        ax_map.coastlines()
         ax_map.add_feature(BORDERS, linestyle=':', edgecolor='black')
 
         if ax_cbar is not None:

@@ -1,2 +1,10 @@
 # folders
 data/
+__pycache__/
+*/__pycache__/
+
+# files
+*.fasta
+.DS_Store
+.Rhistory
+*.aln

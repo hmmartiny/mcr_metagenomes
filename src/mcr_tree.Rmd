@@ -1,0 +1,199 @@
+---
+title: "Assembly mcr trees"
+output: html_notebook
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ape)
+library(igraph)
+library(phytools)
+library(ggtree)
+library(gggenes)
+library(ggnewscale)
+library(RColorBrewer)
+library(gtable)
+library(grid)
+library(kableExtra)
+library(ggtreeExtra)
+library(ggnewscale)
+
+path='~/repos/mcr_metagenomes/'
+knitr::opts_knit$set(root.dir = normalizePath(path)) 
+
+source(paste(path, 'src/extra_funcs.R', sep='/'))
+```
+
+# Load data 
+## From blast+kraken2+plasmidfinder
+```{r message=FALSE, warning=FALSE}
+assembly_res <- read_csv('data/assembly_results.csv') %>%
+  filter(method != 'kraken2') %>%
+  mutate(
+    sample=run_accession,
+    contig=qseqid
+  ) %>%
+  mutate(
+    id = paste(sample, contig, sep='_'),
+    gene_variant = str_split(sseqid, '_', simplify = T)[, 1]
+  ) %>%
+  separate(
+    gene_variant, into=c('gene', NA), sep = '\\.', remove = F
+  )
+head(assembly_res)
+```
+
+## Flanker clusters
+```{r message=FALSE, warning=FALSE}
+flanker_clusters <- read_csv('data/flanker_all.clusters', col_names = F) 
+flanker_clusters <- flanker_clusters %>%
+  rename(
+    guiid=`X1`,
+    group=X2
+  ) %>%
+  separate(
+    guiid, into=c('id', NA),sep = '_mcr', remove=F
+  ) %>%
+  separate(
+    id, into=c('sample', 'contig'), sep=':', remove=F
+  ) %>%
+  mutate(
+    # group = as.numeric(group),
+    id = str_replace(id, ':', '_'),
+    window = str_split(guiid, '_', simplify = T)[, 9]
+  )
+head(flanker_clusters)
+```
+
+## CD-HIT clusters
+```{r}
+cdhit_clusters.list <- read.cdhit('data/all_contigs.cdhit97.res.clstr.clstr', verbose = F)
+cdhit_clusters <- tibble()
+for (n in names(cdhit_clusters.list)) {
+  s <- as_tibble(cdhit_clusters.list[[n]]) %>%
+    separate(col = value, into = c('run_accession', 'qseqid'), sep = ':', remove = F) %>%
+    mutate(
+      cluster=n,
+      group=str_split(n, ' ', simplify = T)[, 2],
+      id=str_replace(value, ':', '_')
+    )
+  if(nrow(s) == 1){
+    s$group2 = 'Single cluster'
+  } else {
+    s$group2 <- as.numeric(s$group)
+  }
+  cdhit_clusters <- rbind(cdhit_clusters, s)
+}
+head(cdhit_clusters)
+```
+
+## KMA dist
+```{r}
+read.kmadist <- function(distfile){
+  num_cols <- as.numeric(read.table(file = kmafile,header = F,nrows = 1))
+  mat <- read.table(kmafile, fill=T, skip=1, col.names=rep("", num_cols))
+  mat <- as.data.frame(mat)
+  rownames(mat) <- mat$X
+  mat <- select(mat, -'X')
+  colnames(mat) <- 1:ncol(mat)
+  return(mat)
+}
+
+kmafile='data/mcr_5000_10.GeneMaskedFlank.fa.phy'
+mat <- read.kmadist(kmafile)
+mat2 <- fill_kma.dist(mat)
+head(mat2)
+```
+
+Clusters
+```{r}
+kma.clust <- hclust(as.dist(mat2), method='ward.D')
+#ggtree(kma.clust, layout = 'circular')
+# get clusters
+kma.groups <-cutree(kma.clust, k=5)
+kma.groups2 <- kma.groups %>% as_tibble() %>%
+  mutate(header=names(kma.groups)) %>%
+  separate(
+    header, into=c('id', 'window'), sep=':'
+  )
+
+```
+
+
+## MSA tree (clustalw2 alignment)
+```{r}
+tree <- read.tree('data/all_contigs.dnd')
+tree <- midpoint.root(tree)
+```
+
+# Tree plots
+## make plot data frames
+```{r}
+x_blast <- data.frame(tree$tip.label) %>%
+  mutate(id=tree.tip.label) %>%
+  left_join(filter(assembly_res, method=='blastn'), by=c("id" = "id"))
+```
+
+
+## clustalw2
+Add gene colors
+```{r}
+g <- ggtree(tree)
+p1 <- g %<+% x_blast + 
+    geom_tippoint(aes(color=gene))
+p1
+```
+
+Add clusters from the different clustering methods
+```{r}
+# p2 <- facet_plot(
+#   p1, 
+#   panel='CD-HIT clusters',
+#   data=select(cdhit_clusters, id, group2),
+#   geom=geom_tile,
+#   aes(x=1, fill=group2)
+# ) +
+#   guides(fill=guide_legend(title="CD-HIT"))
+
+p2 <- p1 + new_scale_fill() +
+  geom_facet(
+    data = select(cdhit_clusters, id, group2),
+    panel = 'CD-HIT clusters',
+    geom = geom_tile,
+    aes(x=1, fill=as.factor(group2))
+  ) 
+p2
+```
+
+```{r}
+# facet_plot(
+#   p2, 
+#   panel='Flanker clusters',
+#   data = select(flanker_clusters, id, group),
+#   geom = geom_tile,
+#   aes(x=1, fill=as.factor(flanker_clusters$group))
+# ) 
+
+p3 <- p2 + new_scale_fill() +
+  geom_facet(
+    data = select(flanker_clusters, id, group),
+    panel = 'Flanker (window 1000)',
+    geom = geom_tile,
+    aes(x=1, fill=group)
+  ) +
+  scale_fill_viridis_b(name='Flanker', option='D')
+p3
+```
+
+```{r}
+p4 <- p3 + new_scale_fill() + 
+  geom_facet(
+    data = select(kma.groups2, id, value),
+    panel = 'Flankenstein (window=10-5000)',
+    geom = geom_tile,
+    aes(x=1, fill=value)
+  ) +
+  scale_fill_viridis_b(name='KMA', option='C')
+p4
+```
+
