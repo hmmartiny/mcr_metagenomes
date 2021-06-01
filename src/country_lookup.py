@@ -5,6 +5,7 @@ import re
 import pycountry
 import geopy
 import os
+import reverse_geocoder as rg
 
 import cartopy.io.shapereader as shpreader
 from cartopy.feature import BORDERS, ShapelyFeature
@@ -33,7 +34,7 @@ class CountryLookup:
         >>> df['country_name'] = df['country'].apply(country_lookup.search)
     """
     
-    def __init__(self, na_val='Not available', no_fix=None, data_dir='data/'):
+    def __init__(self, na_val='Not available', no_fix=np.nan, data_dir='data/'):
         """Initialize the lookup system
 
         Parameters
@@ -68,7 +69,9 @@ class CountryLookup:
             'Tanzania': 'United Republic Of Tanzania',
             'Czech Republic': 'Czechia',
             'Italia': 'Italy',
-            'Not available': np.nan,
+            'Not available': self.na_val,
+            'NULL': self.na_val,
+            None: self.na_val
         }
         
     def search(self, country):
@@ -113,7 +116,7 @@ class CountryLookup:
     def step_1(self, country):
         """No string editing applied"""
         
-        fixed, fixed_val = False, None        
+        fixed, fixed_val = False, self.no_fix        
 
         # check format of string
         # if coordinate, try that.
@@ -243,7 +246,11 @@ class CountryLookup:
             shp_fname = os.path.join(self.data_dir, 'ne_10m_geography_marine_polys.shp')
         )
 
-        self.area2geo = {**self.land_recs, **self.ocean_recs}
+        self.lakes, self.lake_recs = self.load_geo(
+            shp_fname = os.path.join(self.data_dir, 'ne_10m_lakes.shp')
+        )
+
+        self.area2geo = {**self.land_recs, **self.ocean_recs, **self.lake_recs}
 
     def is_land(self, x, y):
         """Check if a given coordinate is on land"""
@@ -251,6 +258,10 @@ class CountryLookup:
     def is_ocean(self, x, y):
         """Check if a given coordinate is in the ocean"""
         return self.ocean.contains(sgeom.Point(x, y))
+    
+    def is_lake(self, x, y):
+        """Check if a given coordinate is in a lake"""
+        return self.lakes.contains(sgeom.Point(x, y))
     
     def geo_match(self, x, y, records):
         """Loop through defined areas and see if a given coordinate falls within"""
@@ -261,7 +272,12 @@ class CountryLookup:
         
         return False, None
 
-    def name2geo(self, geoName):
+    def name2geo(self, geoName, return_category=True):
+        """
+        Convert a country or ocean name into a geographical shape.
+        The geographical shape can then be used to create maps.
+        
+        """
         geo = np.nan
         geotype = np.nan
 
@@ -273,7 +289,7 @@ class CountryLookup:
             geo = [
                 self.area2geo[d + ' ' + geoName]['geo'] for d in oceans
             ]
-            geotype='Ocean'
+            geotype='Water'
         else:
 
             try:
@@ -283,28 +299,49 @@ class CountryLookup:
         
         if geoName.title() in self.land_recs: 
             geotype='Land'
-        elif geoName.title() in self.ocean_recs: 
-            geotype='Ocean'
+        elif geoName.title() in self.ocean_recs or geoName.title() in self.lake_recs: 
+            geotype='Water'
         
-        return [geo, geotype]
+        if return_category:
+            return [geo, geotype]
+        else:
+            return geo
+    
+    def reverse_geo(self, x, y):
+        fixed, fixed_val = False, self.no_fix
+
+        hits = rg.search((x, y))
+        if len(hits) == 1:
+            fixed_val = hits[0]['name']
+            fixed = True
         
+        return fixed, fixed_val
+
     def coordinate_lookup(self, country):
-        fixed, fixed_val = False, None
+        fixed, fixed_val = False, self.no_fix
         
         if country.count('.') == 2:
             x, y = self.to_coordinate(country)
+
+            fixed, fixed_val = self.reverse_geo(x, y)
+
+            if fixed:
+                return fixed, fixed_val
             
-            if self.is_land(x, y):
+            if self.is_lake(x, y): # lakes go first, because they can be within country borders.
+                fixed = fixed_val = self.geo_match(x,y, self.lake_recs)
+                            
+            elif self.is_land(x, y):
                 fixed, fixed_val = self.geo_match(x, y, self.land_recs)
                 
             elif self.is_ocean(x, y):
                 fixed, fixed_val = self.geo_match(x, y, self.ocean_recs)
-                            
+            
         return fixed, fixed_val
     
-    def add_ocean_borders(self, ax):
+    def add_water_borders(self, ax):
         
-        for k, v in self.ocean_recs.items():
+        for k, v in {**self.ocean_recs, **self.lake_recs}.items():
             if len(v) > 1: continue
 
             geo = v['geo']
@@ -317,17 +354,25 @@ class CountryLookup:
                     linestyle=':'
                 )
             )
+        
+    def gps_scatter(self, df, lon, lat, valcol, ax, scale=50, fmt=1):
+        ax.scatter(
+                df.longitude,
+                df.latitude,
+                s=df[valcol].round(fmt).values*scale,
+                color=df['color'],
+                edgecolors='black',
+                alpha=.5,
+                transform=ccrs.PlateCarree(),
+                zorder=2
+            )
 
-    def cartopy_map(self, df, geocol, valcol, ax_map, ax_cbar=None, ncmap='Blues', cbar_label='', plot_ocean=True, vmin=None, vmax=None, **plot_args):
+    def cartopy_map(self, df, geocol, valcol, ax_map, ax_cbar=None, ncmap='Blues', cbar_label='', plot_water=True, vmin=None, vmax=None, scale=50, **plot_args):
         
         # make sure that we are not modifying the original dataframe
         df = df.copy()
         
         df.dropna(subset=[valcol], inplace=True)
-
-        # drop ocean rows if not plotting them
-        if not plot_ocean:
-            df = df.loc[~(df['geotype'] == 'Ocean')]
 
         # setup colors
         cmap, norm = norm_cmap(df[valcol], cmap=ncmap, vmin=vmin, vmax=vmax)
@@ -335,7 +380,7 @@ class CountryLookup:
 
         # style shapes
         shape_style = {
-            'Ocean': {
+            'Water': {
                 'edgecolor': 'lightgray',
                 'linestyle': ':',
                 'lw': 1
@@ -343,16 +388,15 @@ class CountryLookup:
             'Land': {
                 'edgecolor': 'black',
                 'linestyle': '-',
-                'lw': 1
+                'lw': .5
             }
         }
         
         # create map        
-        self.add_ocean_borders(ax=ax_map)
-        for _, row in df.iterrows():
+        for _, row in df.loc[df['geotype'] != 'Water'].iterrows():    
             geos = row[geocol]
             if not isinstance(geos, list):
-                continue
+                geos = [geos]
 
             for geo in geos: # to handle oceans
                 try:
@@ -366,14 +410,27 @@ class CountryLookup:
                         )
                     )
                 except KeyError:
-                    print(row)
+                    pass
+        
+        if plot_water:
+            ax_map.set_global()
+            self.add_water_borders(ax=ax_map)
+            
+            water_df = df.loc[df['geotype'] == 'Water'].merge(
+                self.country_coords, left_on='country', right_on='name'
+            )
+
+            self.gps_scatter(water_df, lat='lat', lon='lon', valcol=valcol, ax=ax_map, scale=scale)
+
         # pretty map axis
         ax_map.background_patch.set_visible(False)
         ax_map.outline_patch.set_visible(False)
         
         # add borders and coastlines
-        ax_map.coastlines()
-        ax_map.add_feature(BORDERS, linestyle=':', edgecolor='black')
+        ax_map.coastlines(lw=.5)
+        ax_map.add_feature(BORDERS, linestyle='-', edgecolor='black', lw=.5)
+
+        # make axis global
 
         if ax_cbar is not None:
             make_colorbar(ax_cbar, cmap.cmap, norm, label=cbar_label)

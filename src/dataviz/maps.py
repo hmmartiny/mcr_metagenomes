@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
+import os
 import sys
 import pandas as pd
 import seaborn as sns
+import numpy as np
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.colors import Normalize
 import matplotlib as mpl
+import cartopy.crs as ccrs
 
-sys.path.append(
-    os.path.abspath(
+parpath = os.path.abspath(
         os.path.join(
             os.path.dirname(__file__), os.path.pardir
         )
     )
+sys.path.append(
+    parpath
 )
 from country_lookup import CountryLookup
-countryLocator = CountryLookup()
+from dataviz.dataviz import gene_formatter
+countryLocator = CountryLookup(data_dir=os.path.join(parpath, os.path.pardir, 'data', 'country_shapes'))
 
 def plot_choropleth(df, column, left_on='country_name', cbar_label='', figsize=(10, 7), title='', how='inner', ax=None, vmin=None, vmax=None, na_val=None, **args):
     """Not in use anymore, should use the function `cartography_map` in the CountryLookup class"""
@@ -72,78 +77,77 @@ def plot_choropleth(df, column, left_on='country_name', cbar_label='', figsize=(
         plt.close(fig)
         return fig
 
+def get_geo(cm, col='country'):
 
-def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5, cbar_height=.2, subtitles_kwargs={}, ytot='Total ALR', title_kwargs={}, plot_args={}):
+    cm.reset_index(inplace=True)
+    cm[['geo', 'geotype']] = cm[col].apply(
+        lambda x: countryLocator.name2geo(x) if isinstance(x, str) else np.nan
+    ).apply(pd.Series)
+
+    return cm
+
+def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5, cbar_height=.2, subtitles_kwargs={}, ytot='Total ALR', small_scale=10, title_kwargs={}, plot_args={}, plot_water=True):
     
     vmax = max(cm.max().max().item(), cm_tot.max().max().item())
     vmin = max(cm.min().min().item(), cm_tot.min().min().item())
+
+    # get genes
+    genes = sorted(cm.columns.tolist())
+    genes[ncols:] = genes[ncols:][::-1]
+
+    # get geo
+    cm = get_geo(cm, col = left_on)
+    cm_tot = get_geo(cm_tot, col=left_on)
     
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     gs = fig.add_gridspec(ncols=ncols, nrows=nrows, height_ratios=np.repeat(1, nrows-1).tolist() + [cbar_height])
 
-    ax_main = fig.add_subplot(gs[:-2, :-1]) 
+    ax_main = fig.add_subplot(gs[:-2, :-1], projection=ccrs.PlateCarree())
+    # ax_main.set_aspect('auto') 
     ax_bar = fig.add_subplot(gs[-1, :])
     
     axes = []
     # add subplots in second to last row
     for i in range(nrows-1):
-        ax = fig.add_subplot(gs[-2, i])
+        ax = fig.add_subplot(gs[-2, i], projection=ccrs.PlateCarree())
+        # ax.set_aspect('auto')
         axes.append(ax)
     
     # add remaining subplots in the last column
     for i in range(ncols-1):
-        ax = fig.add_subplot(gs[i, -1])
+        ax = fig.add_subplot(gs[i, -1], projection=ccrs.PlateCarree())
+        ax.set_aspect('auto')
         axes.append(ax)
     
     # start plotting the small maps
-    genes = sorted(cm.columns.tolist())
     for gene, ax in zip(genes, axes):
-        # plot_choropleth(
-        #     cm[gene],
-        #     column=gene,
-        #     ax=ax,
-        #     vmin=vmin,
-        #     vmax=vmax,
-        #     legend=False,
-        #     cmap='Blues',
-        #     left_on=left_on
-        # )
-
         countryLocator.cartopy_map(
             df = cm,
             valcol = gene,
             geocol = 'geo',
             ax_map = ax,
-            plot_ocean=plot_ocean,
+            plot_water=plot_water,
+            vmax=vmax,
+            vmin=vmin,
+            scale=small_scale
             **plot_args
         )
         
         ax.axis('off')
-        ax.set_title(gene, **subtitles_kwargs)
+        ax.set_title(gene_formatter(gene), **subtitles_kwargs)
         
         
     # plot total levels in the whole wide world
-    # plot_choropleth(
-    #     cm_tot, 
-    #     column=ytot, 
-    #     cbar_label='ALR', 
-    #     ax=ax_main,
-    #     vmin=vmin,
-    #     vmax=vmax,
-    #     legend=True,
-    #     cax=ax_bar,
-    #     cmap='Blues',
-    #     left_on=left_on
-    # )
-
     countryLocator.cartopy_map(
         df = cm_tot,
         geocol = 'geo',
         valcol = ytot,
         ax_map = ax_main,
         ax_cbar = ax_bar,
-        plot_ocean=plot_ocean,
-        cbar_label=ytot
+        plot_water=plot_water,
+        cbar_label='ALR',
+        vmax=vmax,
+        vmin=vmin,
         **plot_args
 
     )
@@ -153,6 +157,42 @@ def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5,
     ax_main.axis('off')
     
     plt.close(fig)
+    return fig
+
+def plot_single_map(cm, valcol, countrycol='country', figsize=(20, 12), cbar_height=.2, plot_water=True, vmin=None, vmax=None):
+
+    cm = cm.copy()
+    if cm[valcol].isna().any():
+        cm.dropna(subset=[valcol])
+
+    # get geo
+    cm = get_geo(cm, col=countrycol)
+
+    # define fig
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    gs = fig.add_gridspec(ncols=1, nrows=2, height_ratios=[1, cbar_height])
+
+    ax_main = fig.add_subplot(gs[0], projection=ccrs.PlateCarree())
+    # ax_main.set_aspect('auto') 
+    ax_bar = fig.add_subplot(gs[1])
+
+    # plot total levels in the whole wide world
+    countryLocator.cartopy_map(
+        df = cm,
+        geocol = 'geo',
+        valcol = valcol,
+        ax_map = ax_main,
+        ax_cbar = ax_bar,
+        plot_water=plot_water,
+        cbar_label='ALR',
+        vmax=vmax,
+        vmin=vmin,
+    )
+
+    ax_main.set_title(valcol)
+
+    plt.close(fig)
+
     return fig
 
 
@@ -192,30 +232,3 @@ def make_colorbar(ax, cmap, norm, orientation='horizontal', label=''):
     )
     
     cb1.set_label(label)
-
-def cartopy_map(df, geocol, valcol, ax_map, ax_cbar=None, ncmap='Blues', cbar_label=''):
-    
-    df = df.copy()
-    
-    # setup colors
-    cmap, norm = norm_cmap(df[valcol], cmap=ncmap)
-    df['color'] = df[valcol].apply(cmap.to_rgba)
-    
-    # plot map
-    ax_map.coastlines()
-    ax_map.add_feature(BORDERS, linestyle=':')
-    
-    for _, row in df.iterrows():
-        ax_map.add_feature(
-            ShapelyFeature(
-                [row[geocol]],
-                ccrs.PlateCarree(),
-                facecolor=row['color']
-            )
-        )
-    # pretty map axis
-    ax_map.background_patch.set_visible(False)
-    ax_map.outline_patch.set_visible(False)
-
-    if ax_cbar is not None:
-        make_colorbar(ax_cbar, cmap.cmap, norm, label=cbar_label)

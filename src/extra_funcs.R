@@ -42,7 +42,7 @@ fill_kma.dist <- function(mat){
         mat[i, j] = 0
       } else {
         if(is.na(mat[i, j])){
-          mat[i, j] = mat[j, i]
+         tryCatch({mat[i, j] = mat[j, i]}, error = function(e){print(paste(i, j))})
         }
         
       }
@@ -51,4 +51,9 @@ fill_kma.dist <- function(mat){
   mat <- as.data.frame(mat)
   colnames(mat) <- cols
   return(mat)
+}
+
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
 }

@@ -4,9 +4,10 @@ from dataviz.dataviz import plot_timeline, plot_hosts, plot_maps
 from funcs import *
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from country_lookup import CountryLookup
-from dataviz.maps import plot_maps
+from dataviz.maps import plot_maps, plot_single_map
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -62,6 +63,31 @@ def parse_args():
         dest='oldest_year'
     )
 
+    parser.add_argument(
+        '--context',
+        type=str,
+        default='paper',
+        choices=['talk', 'paper', 'poster'],
+        help='Set context for plots created, by default: paper',
+        dest='context'
+    )
+
+    parser.add_argument(
+        '-s', '--suffix',
+        type=str,
+        default='png',
+        choices=['png', 'pdf'],
+        help='Extension type to save figures in, by default: png',
+        dest='suffix'
+    )
+
+    parser.add_argument(
+        '--subset_hosts',
+        type=str,
+        help='File containg host names to make a subset of the data, by default: None',
+        dest='subset_hosts'
+    )
+
     return parser.parse_args()
 
 def get_data(query, db_args, fix_gene=True, fix_date=True, oldest_year=None):
@@ -86,7 +112,7 @@ def get_data(query, db_args, fix_gene=True, fix_date=True, oldest_year=None):
 
 
 def create_cms(df, group_col, gene_col='gene', bac_col='bacterial_fragment'):
-
+    """Create count matrices"""
     df = df.copy()
 
     cm = count_matrix(
@@ -116,9 +142,13 @@ def create_cms(df, group_col, gene_col='gene', bac_col='bacterial_fragment'):
 if __name__ == "__main__":
     args = parse_args()
 
+    # set context
+    sns.set_context(args.context)
+
     # Pull data
     if args.verbose:
         print("Retrieving data..")
+    
     q_amr = "select * from get_amr2 where refSequence like 'mcr-%%' and bacterial_fragment > 0"
     df_main = get_data(
         query=q_amr,
@@ -154,6 +184,7 @@ if __name__ == "__main__":
             group_col='country',
         )
         
+        # combined maps figure
         map_plots = plot_maps(
             cm = cm_country_alr,
             cm_tot = cm_country_alr_total,
@@ -162,11 +193,38 @@ if __name__ == "__main__":
         ) 
         map_plots.savefig(
             os.path.join(
-                args.output, 'mcr_maps_cartopy.pdf'
+                args.output, 'mcr_maps_cartopy.{}'.format(args.suffix)
             )
         )  
-        map_plots.savefig(
-            os.path.join(
-                args.output, 'mcr_maps_cartopy.png'
+        
+        # indiviual plots of genes and total amr levels
+        vmax = max(cm_country_alr.max().max().item(), cm_country_alr_total.max().max().item())
+        vmin = max(cm_country_alr.min().min().item(), cm_country_alr_total.min().min().item())
+
+        for gene in cm_country_alr:
+            gene_map = plot_single_map(
+                cm = cm_country_alr.reset_index(),
+                valcol = gene,
+                cbar_height=0.05,
+                vmin=vmin, vmax=vmax
+
             )
-        )
+
+            gene_map.savefig(
+                os.path.join(
+                    args.output, '{}_map.{}'.format(gene, args.suffix)
+                )
+            )
+        
+        gene_map = plot_single_map(
+                cm = cm_country_alr_total.reset_index(),
+                valcol = 'Total ALR',
+                cbar_height=0.05,
+                vmin=vmin, vmax=vmax
+
+            )
+        gene_map.savefig(
+                os.path.join(
+                    args.output, 'mcr_all_map.{}'.format(args.suffix)
+                )
+            )

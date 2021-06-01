@@ -264,6 +264,16 @@ def plot_timeline(cm, cm_closed, gene_timeline, timesamples, samples_ys, figsize
         dates = years,
         labels = labels
     )
+
+    # plot the count of samples with and without gene hits    
+    make_bars(
+        ax = ax_samples,
+        data = timesamples,
+        x = 'year',
+        ys = samples_ys,
+        width = .2,
+        colors=['dimgray', 'lightgray']
+    )
     
     # plot ALR data
     for gene in cm:
@@ -276,16 +286,6 @@ def plot_timeline(cm, cm_closed, gene_timeline, timesamples, samples_ys, figsize
             alpha = .8
         )
         
-    # plot the count of samples with and without gene hits    
-    make_bars(
-        ax = ax_samples,
-        data = timesamples,
-        x = 'year',
-        ys = samples_ys,
-        width = .2,
-        colors=['dimgray', 'lightgray']
-    )
-        
     # plot relative abundance(s) in the composition
     make_stacked_bars(
         ax = ax_bar,
@@ -297,16 +297,16 @@ def plot_timeline(cm, cm_closed, gene_timeline, timesamples, samples_ys, figsize
     
     # show all xticks
     xticks = sorted(list(set(cm_closed.index.tolist() + years)))
+    xticks = np.arange(min(xticks), max(xticks) + 1, 1) # no gaps
     for ax in [ax_timeline, ax_alr, ax_bar]:
         ax.set_xticks(xticks)
     
     # hide axis on middle plot
     ax_alr.get_xaxis().set_visible(False)
     
-    
     # create figure legends
-    ax_alr.legend(**legend_kwargs)
-    ax_samples.legend(loc='lower right', **legend_kwargs)
+    ax_alr.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., **legend_kwargs)
+    ax_samples.legend(bbox_to_anchor=(1.05, 0.35), loc=2, borderaxespad=0., **legend_kwargs)
     
     # create labels for the y-axes
     ax_alr.set_ylabel('ALR', **ylabel_kwargs)
@@ -314,7 +314,7 @@ def plot_timeline(cm, cm_closed, gene_timeline, timesamples, samples_ys, figsize
     ax_samples.set_ylabel(r"$\log_{10}$(Count) (bars)", **ylabel_kwargs)
     
     # add title for discovery
-    ax_timeline.text(xticks[0], .1, "Timeline of discovery", ylabel_kwargs)
+    ax_timeline.text(xticks[0], .1, "Timeline of reporting", ylabel_kwargs)
 
     plt.close(fig)
     return fig
@@ -373,8 +373,8 @@ def plot_hosts(cm_tot, cm_closed, host_counts, samples_ys, sample_colors, sort_b
 
 def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5, cbar_height=.2, subtitles_kwargs={}, ytot='Total ALR', titel_kwargs={}):
     
-    vmax = max(cm.max().max().item(), cm_tot.max().max().item())
-    vmin = max(cm.min().min().item(), cm_tot.min().min().item())
+    vmax = max(cm.max().max().item(), cm_tot[ytot].max().max().item())
+    vmin = max(cm.min().min().item(), cm_tot[ytot].min().min().item())
     
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     gs = fig.add_gridspec(ncols=ncols, nrows=nrows, height_ratios=np.repeat(1, nrows-1).tolist() + [cbar_height])
