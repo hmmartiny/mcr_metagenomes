@@ -6,15 +6,62 @@ import json
 import pycoda
 
 def closure(row, k=100):
+    """Closure a composition to k
+
+    Parameters
+    ----------
+    row : pd.Series
+        Pandas DataFrame row
+    k : int, optional
+        Value to close to, by default 100
+
+    Returns
+    -------
+    pd.Series
+        Closed compositional row
+    """
     return k * row / row.sum()
 
 def alr(row):
+    """Calculate ALR values for a row by using the last component as the denominator
+
+    Parameters
+    ----------
+    row : pd.Series
+        Pandas DataFrame row
+
+    Returns
+    -------
+    pd.Series
+        ALR transformed row
+    """
     return np.log(row[:-1] / row[-1])
 
 def tot_alr(row):
+    """Sum all row contents except for the last component and calculate ALR"""
     return np.log(sum(row[:-1]) / row[-1])
 
 def count_matrix(df, groupby_col, index_pivot, column_pivot, values='fragmentCountAln'):
+    """Create count matrix by pivoting a long dataframe into wide format
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        A compositional DataFrame
+    groupby_col : str or list
+        Column(s) to group data by
+    index_pivot : str or list
+        Column(s) to use as index in pivot operation
+    column_pivot : str or list
+        Column(s) to use as column in pivot operation
+    values : str or list, optional
+        Column(s) to use as values in pivot operation, by default 'fragmentCountAln'
+
+    Returns
+    -------
+    pd.DataFrame
+        Compositional dataframe transformed to be of correct format
+    """
     
     agg_df = df.groupby(groupby_col).agg({values: 'sum'}).reset_index()
 
@@ -24,7 +71,18 @@ def count_matrix(df, groupby_col, index_pivot, column_pivot, values='fragmentCou
     return pivoted
 
 def count_samples(gene_df, bac_df, gene='mcr', col='collection_year', val_col='runs', log=np.log10):
-    """Count samples with and without gene hits"""
+    """Count samples with and without gene hits
+
+    Parameters
+    ----------
+    gene_df : pd.DataFrame
+        Compositional dataframe with gene counts
+    bac_df : pd.DataFrame
+        DataFrame with bacterial gene counts
+    
+    
+    
+    """
     
     timesamples = pd.DataFrame(
         gene_df.drop_duplicates('run_accession')[col].value_counts()
@@ -64,59 +122,3 @@ def query_db(query, db_args='db_args.json'):
         )    
     data = pd.read_sql_query(query, engine)
     return data
-
-def pca(data, parts, metadf=None, left_on=None, left_index=False):
-    
-    # replace zeroes
-    df = data[parts].coda.zero_replacement()
-    
-    # close
-    df = df.coda.closure(100)
-      
-    # clr transform
-    df_clr = df.coda.center().coda.clr()
-    
-    # run SVD
-    scores, eig_val, loadings = np.linalg.svd(df_clr)
-    n_eig = len(eig_val)
-    
-    # explained variance by each pc
-    explained_variance = ( eig_val ** 2 / np.sum(eig_val ** 2)) * 100
-    explained_variance = pd.DataFrame(
-        explained_variance,
-        index=[f'PC{i+1}' for i in range(n_eig)],
-        columns=['Explained Variance']
-    )
-    #explained_variance.columns.name = 'Variance'
-    explained_variance.index.name = 'Principal Component'
-
-    # make scores df
-    scores = pd.DataFrame(
-        scores.T,
-        columns=df_clr.index
-    )
-
-    # loadings df
-    # take inner product of eig_val * identity matrix of number of eigenvalues
-    loadings = pd.DataFrame(
-        np.inner(
-            eig_val * np.identity(n_eig),
-            loadings.T[0:n_eig, 0:n_eig]
-        ),
-        columns=df_clr.columns[0:n_eig],
-        index=[f'PC{i+1}' for i in range(n_eig)]
-    )
-
-    scales = [np.max(np.abs(loadings.values)),
-                  [np.max(np.abs(scores.loc[idx].values)) for idx in [1, 2]]]
-
-
-    scores = scores[0:2]
-    scores = (scales[0] * (scores.T / scales[1])).T
-    
-    if meta_df is not None:
-        scores_ext = scores.T.merge(metadf, right_index=True, left_index=left_index, left_on=left_on)
-        return explained_variance, scores, loadings, scales, scores_ext
-    
-    return explained_variance, scores, loadings, scales
-    

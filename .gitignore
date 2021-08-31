@@ -2,9 +2,12 @@
 data/
 __pycache__/
 */__pycache__/
+*/.ipynb_checkpoints/
 
 # files
 *.fasta
 .DS_Store
 .Rhistory
 *.aln
+*.pdf
+*.ini

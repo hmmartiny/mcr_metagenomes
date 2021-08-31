@@ -1,6 +1,8 @@
 ---
 title: "Assembly mcr trees"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
@@ -17,6 +19,9 @@ library(grid)
 library(kableExtra)
 library(ggtreeExtra)
 library(ggnewscale)
+library(ggpubr)
+library(genbankr)
+library(cowplot)
 
 path='~/repos/mcr_metagenomes/'
 knitr::opts_knit$set(root.dir = normalizePath(path)) 
@@ -24,176 +29,643 @@ knitr::opts_knit$set(root.dir = normalizePath(path))
 source(paste(path, 'src/extra_funcs.R', sep='/'))
 ```
 
-# Load data 
-## From blast+kraken2+plasmidfinder
-```{r message=FALSE, warning=FALSE}
-assembly_res <- read_csv('data/assembly_results.csv') %>%
-  filter(method != 'kraken2') %>%
+# Load data and create dataframes for plotting
+From blast+MEFinder+plasmidFinder
+```{r df_MAIN, message=FALSE, warning=FALSE}
+df <- read_csv('data/flanks/all_flanks.csv') %>%
   mutate(
-    sample=run_accession,
-    contig=qseqid
-  ) %>%
-  mutate(
-    id = paste(sample, contig, sep='_'),
-    gene_variant = str_split(sseqid, '_', simplify = T)[, 1]
-  ) %>%
-  separate(
-    gene_variant, into=c('gene', NA), sep = '\\.', remove = F
-  )
-head(assembly_res)
-```
-
-## Flanker clusters
-```{r message=FALSE, warning=FALSE}
-flanker_clusters <- read_csv('data/flanker_all.clusters', col_names = F) 
-flanker_clusters <- flanker_clusters %>%
-  rename(
-    guiid=`X1`,
-    group=X2
-  ) %>%
-  separate(
-    guiid, into=c('id', NA),sep = '_mcr', remove=F
-  ) %>%
-  separate(
-    id, into=c('sample', 'contig'), sep=':', remove=F
-  ) %>%
-  mutate(
-    # group = as.numeric(group),
-    id = str_replace(id, ':', '_'),
-    window = str_split(guiid, '_', simplify = T)[, 9]
-  )
-head(flanker_clusters)
-```
-
-## CD-HIT clusters
-```{r}
-cdhit_clusters.list <- read.cdhit('data/all_contigs.cdhit97.res.clstr.clstr', verbose = F)
-cdhit_clusters <- tibble()
-for (n in names(cdhit_clusters.list)) {
-  s <- as_tibble(cdhit_clusters.list[[n]]) %>%
-    separate(col = value, into = c('run_accession', 'qseqid'), sep = ':', remove = F) %>%
-    mutate(
-      cluster=n,
-      group=str_split(n, ' ', simplify = T)[, 2],
-      id=str_replace(value, ':', '_')
+    gene_variant = case_when(
+      method == 'blastn' ~ str_split(sseqid, '_', simplify = T)[, 1],
+      method != 'blastn' ~ sseqid
+    ),
+    gene = case_when(
+      method == 'blastn' ~ str_split(str_split(sseqid, '\\.', simplify = T)[, 1], '_', simplify=T)[, 1],
+      method != 'blastn' ~ sseqid
     )
-  if(nrow(s) == 1){
-    s$group2 = 'Single cluster'
-  } else {
-    s$group2 <- as.numeric(s$group)
-  }
-  cdhit_clusters <- rbind(cdhit_clusters, s)
-}
-head(cdhit_clusters)
-```
-
-## KMA dist
-```{r}
-read.kmadist <- function(distfile){
-  num_cols <- as.numeric(read.table(file = kmafile,header = F,nrows = 1))
-  mat <- read.table(kmafile, fill=T, skip=1, col.names=rep("", num_cols))
-  mat <- as.data.frame(mat)
-  rownames(mat) <- mat$X
-  mat <- select(mat, -'X')
-  colnames(mat) <- 1:ncol(mat)
-  return(mat)
-}
-
-kmafile='data/mcr_5000_10.GeneMaskedFlank.fa.phy'
-mat <- read.kmadist(kmafile)
-mat2 <- fill_kma.dist(mat)
-head(mat2)
-```
-
-Clusters
-```{r}
-kma.clust <- hclust(as.dist(mat2), method='ward.D')
-#ggtree(kma.clust, layout = 'circular')
-# get clusters
-kma.groups <-cutree(kma.clust, k=5)
-kma.groups2 <- kma.groups %>% as_tibble() %>%
-  mutate(header=names(kma.groups)) %>%
+  ) %>%
   separate(
-    header, into=c('id', 'window'), sep=':'
+    qseqid, into=c('run_accession', 'contig'), sep=':', remove=F
+  ) %>%
+  mutate(
+    contig_length = as.integer(str_split(contig, '_', simplify = T)[, 4])
+    ) %>%
+  separate(contig, into=c('node', 'node_number', 'node_other'), sep='_', extra='merge',remove = F) %>%
+  mutate(
+    contig_number=paste(node, node_number, sep='_'),
+    qlen = qend - qstart + 1
+  ) %>%
+  select(-c(node, node_other))
+```
+
+```{r def_window}
+window <- 21000
+```
+
+```{r df_KMA}
+(kmafile=paste0(path, 'data/flanks/all_flank_', window, '_1000.GeneMaskedFlank.fa.phy'))
+temp_connection = file(kmafile, 'r')
+len = readLines(temp_connection, n=1)
+len = as.numeric(len)
+close(temp_connection)
+
+kma_data <- as.matrix(read.table(kmafile, fill=T, skip=1, col.names = 1:len, sep='\t', row.names = 1))
+mat <- fill_kma.dist(kma_data)
+
+# make tree
+kma.clust <- hclust(as.dist(mat), method='ward.D')
+tree <- treeio::get.tree(kma.clust)
+
+```
+
+Fetch metadata 
+```{r df_METADATA}
+update_meta <- F
+
+if(update_meta){
+  require(RMariaDB)
+  avaDB <- dbConnect(MariaDB(), group='AvA')
+  
+  query <- "select run_accession, host, country, YEAR(collection_date) as collection_year, refSequence, pct_coverage from get_coverage inner join metadata using(run_accession) where refSequence like 'mcr-%' and pct_coverage>=0.95"
+  
+  
+  metares <- dbSendQuery(avaDB, query)
+  metadata <- dbFetch(metares)
+  
+  dbClearResult(metares)
+  dbDisconnect(avaDB)
+  unloadNamespace('RMariaDB')
+  
+  metadata <- metadata %>%
+    mutate(
+      collection_year = na_if(na_if(collection_year, 0), 1905),
+      country = na_if(na_if(country, 'NULL'), 'Not available')
+    )
+
+  write_csv(metadata, file = 'data/contigs_metadata.csv')
+  } else {
+    metadata <- read_csv('data/contigs_metadata.csv')   
+  }
+
+```
+
+# Make color palettes
+```{r color_palettes}
+# function for creating color palettes for categorical groups
+make_palette <- function(n, palette=NA){
+  
+  if (is.na(palette)) {
+    hues = seq(15, 375, length = n + 1)
+    colors = hcl(h=hues, l=65, c=100)[1:n]
+  } else {
+    getPalette <- colorRampPalette(brewer.pal(8, palette))
+    colors = as.vector(getPalette(n)) 
+  }
+  return(colors)
+}
+
+white.color <- '#FFFFFF'
+
+# mcr gene colors
+colors <- make_palette(9)
+mcr.gene.colors <- list('NA' = white.color)
+for(i in 1:9){
+  mcr.gene.colors[[paste('mcr', i, sep='-', collapse='')]] = colors[i]
+}
+
+# year coloring scheme
+years <- levels(as.factor(unique(metadata$collection_year)))
+colors <- make_palette(n=length(years), palette = 'Set3')
+year.colors <- list('NA' = white.color)
+for(i in 1:length(years)){
+  year.colors[[years[i]]] <- colors[i]
+}
+
+# country coloring scheme
+countries <- unique(metadata$country)
+countries <- sort(countries[!is.na(countries)])
+colors <- as.list(c(pals::alphabet(), pals::alphabet2()))[1:length(countries)] #make_palette(n=length(countries), palette='Set2')
+country.colors <- list('NA' = white.color)
+for(i in 1:length(countries)){
+  country.colors[[countries[i]]] <- colors[[i]]
+}
+
+# host coloring scheme
+hosts <- unique(metadata$host)
+hosts = sort(hosts[!is.na(hosts)])
+colors <- as.list(pals::polychrome(n=length(hosts)))#make_palette(n=length(hosts), palette='Set1')
+host.colors <- list('NA' = white.color)
+for(i in 1:length(hosts)){
+  host.colors[[hosts[i]]] <- colors[[i]]
+}
+
+# coloring scheme for plasmids
+plasmids <- unique(filter(df, method=='plasmidFinder')$gene)
+colors <- make_palette(n=length(plasmids), palette='Dark2')
+plasmid.colors <- list('NA' = white.color)
+for (i in 1:length(plasmids)) {
+  plasmid.colors[[plasmids[i]]] = colors[i]
+}
+
+# coloring scheme for mges
+mges <- unique(filter(df, method=='MEFinder')$gene)
+colors <- make_palette(n=length(mges), palette='Paired')
+mge.colors <- list('NA' = white.color)
+for (i in 1:length(mges)) {
+  mge.colors[[mges[i]]] = colors[i]
+}
+
+ele.colors <- c(plasmid.colors, mge.colors)
+gen.colors <- c(mcr.gene.colors, plasmid.colors, mge.colors)
+
+```
+
+# Dataframes for plots
+Dataframes for plotting trees with metadata
+```{r tree.mcr.datas}
+tree.mcr.data <- data.frame(tree$tip.label) %>%
+  separate(tree.tip.label, into=c('run_accession', 'contig', 'range'), sep=':', remove=F) %>%
+  left_join(
+    filter(df, method=='blastn'), by=c('run_accession', 'contig')
+  ) %>%
+  mutate(
+    mcr_number = as.factor(as.integer(str_split(gene, '-', simplify = T)[, 2]))
   )
 
+tree.mcr.data2 <- tree.mcr.data %>% left_join(
+  distinct(metadata, run_accession, host, country,collection_year), by=c("run_accession"="run_accession")
+  )
+```
+
+Simplify tree dataframes for genes, years, countries and hosts
+```{r treedata}
+
+make_treedata <- function(data, varname, palette, id.vars='tree.tip.label', alpha=1){
+  
+  tree.data <- reshape2::melt(
+      data, id.vars=id.vars, measure.vars=varname, value.name=varname
+    )
+  tree.data <- tree.data %>% 
+    mutate(
+      pos=0,
+      alpha=alpha
+      )
+  
+  return(tree.data)
+}
+
+tree.genes <- make_treedata(tree.mcr.data2, varname='gene', palette=mcr.gene.colors) %>%
+  rowwise() %>%
+  mutate(color=mcr.gene.colors[gene])
+
+tree.hosts <- make_treedata(tree.mcr.data2, varname='host') %>%
+  mutate(
+    host = replace_na(host, 'NA')
+  ) %>%
+  rowwise() %>%
+  mutate(color=host.colors[host])
+
+tree.countries <- make_treedata(tree.mcr.data2, varname='country') %>%
+  mutate(country = replace_na(country, 'NA')) %>%
+  rowwise() %>%
+  mutate(color=country.colors[country])
+
+tree.years <- make_treedata(tree.mcr.data2, varname='collection_year') %>%
+  mutate(collection_year = as.character(replace_na(collection_year, 'NA'))) %>%
+  rowwise() %>%
+  mutate(color=year.colors[collection_year])
+
 ```
 
 
-## MSA tree (clustalw2 alignment)
-```{r}
-tree <- read.tree('data/all_contigs.dnd')
-tree <- midpoint.root(tree)
+Make dataframe for plotting genomic background
+```{r df_GENOMIC_bg}
+# create df with mcr genes 'alignment'
+sample.df.mcr <- df %>%
+  filter(method=='blastn') %>%
+  mutate(
+    qmid = qlen / 2,
+    qstart2 = -qmid,
+    qend2 = qmid,
+    type = 'mcr'
+  )  %>%
+  rowwise() %>%
+  mutate(
+    color =unlist(mcr.gene.colors)[gene], 
+    alpha=1)
+
+sample.df.ele <- df[df$window == as.character(window), ] %>%
+  filter(method != 'blastn' ) %>%
+  mutate(
+    qseqid = str_c(run_accession, contig, sep=':')
+    #window = as.integer(window)
+    ) %>%
+  left_join(
+    select(sample.df.mcr, qseqid, qstart, qend, qstart2, qend2, qmid, qlen), 
+    by='qseqid', 
+    suffix=c('.ele', '.mcr')
+  ) %>%
+  mutate(
+    stream = case_when(
+      qend.ele < qstart.mcr ~ -1,
+      qstart.ele > qend.mcr ~ 1
+     ),
+    ele_dist = case_when(
+      stream == 1 ~ abs(qend.mcr-qstart.ele)- 1,
+      stream == -1 ~ abs(qend.ele - qstart.mcr) - 1 
+    ),
+    qstart2 = case_when(
+      stream == 1 ~ qend2 + ele_dist + 1,
+      stream == -1 ~ qstart2 - ele_dist - qlen.ele
+    ),
+    qend2 = qstart2 + qlen.ele + 1,
+    type=case_when(
+      method == 'plasmidFinder' ~ 'Plasmid',
+      method == 'MEFinder' ~ 'MGE'
+    )
+  ) %>%
+  select(-c(qstart.mcr, qend.mcr, qmid, qlen.mcr)) %>%
+  rowwise() %>%
+  mutate(
+    color = unlist(ele.colors)[gene], 
+    alpha=1
+  )
+
+# contig lengths
+sample.df.contigs <- df %>% filter(
+  qseqid %in% sample.df.mcr$qseqid
+) %>%
+  distinct(qseqid, contig_length) %>%
+  left_join(sample.df.mcr, by=c('qseqid', 'contig_length')) %>%
+  mutate(
+    qstart2 = qstart2 - qstart+1,
+    qdist = contig_length - qend-1,
+    qend2 = qdist + qend2,
+    type = 'contig',
+    color = '#C0C0C0', # grey,
+    alpha = 0.5
+  )
+
+df.gene.arrows <- bind_rows(sample.df.contigs, sample.df.ele, sample.df.mcr) %>%
+  select(qseqid, gene, qstart2, qend2, type, color, alpha) 
+
+# merge tree tip labels
+df.gene.arrows.tree <- data.frame(tree$tip.label) %>%
+  separate(tree.tip.label, into=c('run_accession', 'contig', 'range'), sep=':', remove=F) %>%
+  mutate(qseqid = str_c(run_accession, contig, sep=':')) %>%
+  left_join(df.gene.arrows, by=c('qseqid'))
+
+# df.gene.arrows.tree <- df.gene.arrows.tree[match(df.gene.arrows.tree$tree.tip.label, tree$tip.label), ]
+
 ```
 
-# Tree plots
-## make plot data frames
-```{r}
-x_blast <- data.frame(tree$tip.label) %>%
-  mutate(id=tree.tip.label) %>%
-  left_join(filter(assembly_res, method=='blastn'), by=c("id" = "id"))
+
+# Descriptive plots
+What is the length of contigs containing mcr-genes?
+```{r mcr_contig_lengths}
+max_length <- max(df[df$method=='blastn', 'contig_length'])
+step=1000
+breaks <- seq(0, max_length+step, by=step)
+N_breaks <- length(breaks)
+break_labels <- c(
+  paste0('<', breaks[2])
+)
+for(i in 2:N_breaks){
+  if (i < N_breaks) {
+    break_labels <- c(break_labels, paste(breaks[i], breaks[i+1], sep='-'))
+  }
+}
+
+g.contig_lengths <- df %>%
+  filter(method=='blastn') %>%
+  mutate(
+    length_bin = cut(as.integer(contig_length), breaks=breaks, labels=break_labels)
+  ) %>%
+  group_by(gene, length_bin) %>% tally() %>%
+  ggplot() +
+  geom_col(aes(x=length_bin, y=n, fill=gene)) +
+  scale_fill_manual('Gene', values = mcr.gene.colors) +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle=90)) +
+  ylab('Count') + xlab('Contig length')
+g.contig_lengths
+
+ggsave(plot=g.contig_lengths, file='output/contig_plots/contig_lengths.pdf', width=29.7, height=21, units='cm', limitsize = F)
+
 ```
 
 
-## clustalw2
-Add gene colors
-```{r}
-g <- ggtree(tree)
-p1 <- g %<+% x_blast + 
-    geom_tippoint(aes(color=gene))
-p1
-```
 
-Add clusters from the different clustering methods
-```{r}
-# p2 <- facet_plot(
-#   p1, 
-#   panel='CD-HIT clusters',
-#   data=select(cdhit_clusters, id, group2),
-#   geom=geom_tile,
-#   aes(x=1, fill=group2)
-# ) +
-#   guides(fill=guide_legend(title="CD-HIT"))
+What are the size of flanking regions that contains mobile genetic elements or plasmids?
+```{r eleCounts_flanks}
+mcr.df <- df %>% filter(method == 'blastn') %>% distinct(gene, qseqid)
+ele.df <- df %>% filter(method != 'blastn') %>% mutate(qseqid=str_c(run_accession, contig, sep=':'))
 
-p2 <- p1 + new_scale_fill() +
-  geom_facet(
-    data = select(cdhit_clusters, id, group2),
-    panel = 'CD-HIT clusters',
-    geom = geom_tile,
-    aes(x=1, fill=as.factor(group2))
-  ) 
-p2
+count.df <- mcr.df %>% inner_join(ele.df, by='qseqid') %>%
+  group_by(gene.x, method, window) %>%
+  tally() %>%
+  plyr::rename('gene' = 'gene.x', 'Occurence' = 'n')
+
+g.eles <- ggplot(count.df) +
+  geom_tile(aes(x=gene, y=as.factor(window), fill=Occurence)) + 
+  geom_text(aes(x=gene, y=as.factor(window), label=Occurence),  color='white') + 
+  facet_grid(.~method) +
+  ylab('maximum flank size') +
+  theme_classic()
+ggsave('output/contig_plots/flank_ele_sizes.pdf')
 ```
 
 ```{r}
-# facet_plot(
-#   p2, 
-#   panel='Flanker clusters',
-#   data = select(flanker_clusters, id, group),
-#   geom = geom_tile,
-#   aes(x=1, fill=as.factor(flanker_clusters$group))
-# ) 
+ggpubr::ggarrange(g.contig_lengths, g.eles, ncol = 1, nrow=2, labels='auto')
+ggsave('output/contig_plots/contig_flank_ele.pdf', width=25, height=25, units = 'cm')
+```
 
-p3 <- p2 + new_scale_fill() +
-  geom_facet(
-    data = select(flanker_clusters, id, group),
-    panel = 'Flanker (window 1000)',
-    geom = geom_tile,
-    aes(x=1, fill=group)
+
+
+Occurence of plasmids and MGes for each mcr gene
+```{r}
+g.contig_occurrence <- df[df$window == window, ] %>% filter(method!='blastn') %>%
+  mutate(
+    qseqid = str_c(run_accession, contig, sep=':'),
+    method = str_replace(method, 'MEFinder', 'MobileElementFinder')
+  ) %>%
+  left_join(df[df$method=='blastn', ], by=c('qseqid', 'run_accession', 'contig', 'node_number')) %>%
+  group_by(gene.y, method.x, gene.x) %>%
+  tally() %>%
+  ggplot() +
+  geom_tile(aes(y=gene.y, x=gene.x, fill=n), color='grey') +
+  geom_text(aes(y=gene.y, x=gene.x, label = n), color='white') +
+  facet_grid(. ~ method.x, scales = 'free_x') + 
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle=90),
+    ) +
+  labs(
+    y = expression(paste(italic('mcr'), ' gene')),
+    x = 'Plasmid or mobile element'
+  )
+
+g.contig_occurrence
+ggsave(paste0('output/contig_plots/element_occurence_window', window, '.pdf'), plot=g.contig_occurrence, width=20, height=10, units='cm')
+```
+
+```{r}
+df[df$window == window, ] %>% filter(method!='blastn') %>%
+  mutate(
+    qseqid = str_c(run_accession, contig, sep=':'),
+    method = str_replace(method, 'MEFinder', 'MobileElementFinder')
+  ) %>%
+  left_join(df[df$method=='blastn', ], by=c('qseqid', 'run_accession', 'contig', 'node_number')) %>%
+  group_by(gene.y, method.x, gene.x) %>%
+  tally()
+```
+
+# Tree plot 
+```{r tree_plot}
+gt <- ggtree(tree)#, layout = 'circular')
+gt1 <- gt %<+% tree.mcr.data + geom_tippoint(aes(x=x+1, color=gene), size=.75, alpha=.75, shape=15) +
+  guides(color=guide_legend(override.aes = aes(size=2)))
+gt1
+```
+
+# Tree facets
+```{r tree_facets_1-4}
+p1 <- facet_plot(
+  gt,
+  panel = 'Gene',
+  mapping = aes(x=pos, y=y, fill=gene),
+  geom = geom_tile,
+  data = tree.genes
+) + 
+  scale_fill_manual('Gene', values=mcr.gene.colors) + 
+  new_scale_fill()
+
+p2 <- facet_plot(
+  p = p1,
+  panel = 'Year',
+  mapping = aes(x=pos, y=y, fill=collection_year),
+  geom = geom_tile,
+  data = tree.years
+) +
+  scale_fill_manual('Year', values=year.colors) +
+  new_scale_fill()
+
+p3 <- facet_plot(
+  p2,
+  panel = 'Country',
+  mapping = aes(x=pos, y=y, fill=country),
+  geom = geom_tile,
+  data = tree.countries
+) +
+  scale_fill_manual('Country', values=country.colors) +
+  new_scale_fill()
+
+p4 <- facet_plot(
+  p3,
+  panel = 'Host',
+  mapping = aes(x=pos, y=y, fill=host),
+  geom = geom_tile,
+  data = tree.hosts
+) +
+  scale_fill_manual('Host', values=host.colors) +
+  theme(legend.position = 'none')
+
+```
+
+Adjust the widths of facets
+```{r p4_adjust_widths}
+
+p5 <- ggplot_gtable(ggplot_build(p4))
+
+panels <- c('panel-1-2', 'panel-1-3', 'panel-1-4', 'panel-1-5')
+for (panel in panels) {
+  p5.col<-p5$layout$l[grep(panel, p5$layout$name)]
+  p5$widths[p5.col] = p5$widths[p5.col]*0.075
+}
+
+grid::grid.newpage()
+grid::grid.draw(p5)
+
+```
+
+
+# Gene arrows (horizontal lines)
+```{r}
+# pg <-  ggplot(df.gene.arrows) +
+#   geom_segment(
+#     aes(x=qstart2, xend=qend2, y=qseqid, yend=qseqid, color=gene), 
+#     color=df.gene.arrows$color, 
+#     alpha=df.gene.arrows$alpha) + 
+#   theme_classic() + 
+#   theme(axis.title.x=element_blank(),
+#         axis.text.x=element_blank(),
+#         axis.ticks.x=element_blank(),
+#         axis.title.y=element_blank(),
+#         axis.text.y=element_blank(),
+#         axis.ticks.y=element_blank()
+#         )
+# pg
+
+pdf('output/contig_plots/mcr_arrows_individual.pdf', onefile=T)
+for(gene in sort(unique(df.gene.arrows.tree[df.gene.arrows.tree$type=='mcr', 'gene']))){
+
+  qseqids <- unique(df.gene.arrows.tree[df.gene.arrows.tree$gene == gene, 'qseqid'])
+  qdat <- df.gene.arrows.tree[df.gene.arrows.tree$qseqid %in% qseqids,]
+  
+  g <- ggplot(
+      mapping=aes(x=qstart2, xend=qend2, y=qseqid, yend=qseqid, color=gene)
+    ) +
+    geom_segment(data=filter(qdat, type=='contig'), color='grey', alpha=.5) +
+    geom_segment(data=filter(qdat, type!='contig')) +
+    theme_classic() + 
+    theme(
+      axis.title.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank(),
+      axis.title.y=element_blank(),
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank()
+        ) +
+    ggtitle(gene)
+  
+  print(g)
+}
+dev.off()
+
+```
+
+Add to tree facets
+```{r facet_genomic_bg}
+LINE_WIDTH=1
+
+p6 <- facet_plot(
+  p4 + new_scale_color(),
+  panel='Genomic background',
+  data = filter(df.gene.arrows.tree, type=='contig'),
+  geom = geom_segment,
+  mapping = aes(x=qstart2, xend=qend2, y=y, yend=y), 
+  color='#C0C0C0',
+  alpha = 0.5,
+  size = LINE_WIDTH
+) + new_scale_color()
+
+p7 <- facet_plot(
+  p6,
+  panel='Genomic background',
+  data = filter(df.gene.arrows.tree, type=='mcr'),
+  geom = geom_segment,
+  mapping = aes(x=qstart2, xend=qend2, y=y, yend=y, color=gene),
+  size = LINE_WIDTH
   ) +
-  scale_fill_viridis_b(name='Flanker', option='D')
-p3
-```
+  scale_color_manual('Gene', values=mcr.gene.colors) +
+  new_scale_color()
 
-```{r}
-p4 <- p3 + new_scale_fill() + 
-  geom_facet(
-    data = select(kma.groups2, id, value),
-    panel = 'Flankenstein (window=10-5000)',
-    geom = geom_tile,
-    aes(x=1, fill=value)
+p8 <- facet_plot(
+  p7, 
+  panel='Genomic background',
+  data = filter(df.gene.arrows.tree, type=='Plasmid'),
+  geom = geom_segment,
+  mapping = aes(x=qstart2, xend=qend2, y=y, yend=y, color=gene),
+  size = LINE_WIDTH
   ) +
-  scale_fill_viridis_b(name='KMA', option='C')
-p4
+  scale_color_manual('Plasmid', values=plasmid.colors) +
+  new_scale_color()
+
+p9 <- facet_plot(
+  p8, 
+  panel='Genomic background',
+  data = filter(df.gene.arrows.tree, type=='MGE'),
+  geom = geom_segment,
+  mapping = aes(x=qstart2, xend=qend2, y=y, yend=y, color=gene),
+  size = LINE_WIDTH
+) +
+  scale_color_manual('MGE', values=mge.colors)
+
+
+# Adjust widths
+gp6 <- ggplot_gtable(ggplot_build(p9))
+
+panels <- c('panel-1-2', 'panel-1-3', 'panel-1-4', 'panel-1-5')
+for (panel in panels) {
+  gp6.col<-gp6$layout$l[grep(panel, gp6$layout$name)]
+  gp6$widths[gp6.col] = gp6$widths[gp6.col]*0.08
+}
+
+grid::grid.newpage()
+grid::grid.draw(gp6)
+
 ```
 
+save without legends
+```{r}
+ggsave(plot = gp6, filename = paste0('output/contig_plots/mcr_tree_window', window, '_noleg.pdf'), width=35, height=21, units = 'cm', limitsize = F)
+```
+
+
+# Legends
+```{r MAKE_LEGENDS}
+
+LEGEND_TITLE <- 8
+LEGEND_TEXT <- 6
+LEGEND_SIZE = 0.5
+
+make_legend <- function(data, x, y, fill, colors, title='', legend_size=0.5, legend_text=6, legend_title=8, byrow=F, nrow=NULL, ncol=NULL, legend.direction='vertical', legend.box='vertical', title.position='top'){
+  
+  g.leg <- ggplot(data=data, mapping=aes_string(x=x, y=y, fill=fill)) +
+    geom_tile() + 
+    scale_fill_manual(title, values=colors) +
+    guides(
+      fill=guide_legend(
+        override.aes = list(size=legend_size),
+        byrow=byrow,
+        nrow=nrow,
+        ncol=ncol,
+        title.position=title.position
+      )
+    ) + 
+    theme(
+      legend.text = element_text(size=legend_text),
+      legend.title = element_text(size=legend_title),
+      legend.direction = legend.direction, 
+      legend.box = legend.box,
+      axis.text.y = element_blank()
+    )
+  
+  leg <- get_legend(g.leg)
+  return(leg)
+}
+
+mcr.legend <- make_legend(data=tree.genes, colors=mcr.gene.colors, x='pos', y='tree.tip.label', fill='gene', title = 'Gene')
+plot_grid(mcr.legend)
+
+plasmid.legend <- make_legend(data=filter(sample.df.ele, type=='Plasmid'), colors=plasmid.colors, x='qseqid', y='window', fill='sseqid', title='Plasmid')
+plot_grid(plasmid.legend)
+
+mge.legend <- make_legend(data=filter(sample.df.ele, type=='MGE'), colors=mge.colors, x='qseqid', y='window', fill='sseqid', title='MGE') 
+plot_grid(mge.legend)
+
+(ele.legend1 <- plot_grid(mcr.legend, NULL, plasmid.legend, ncol=1, align='hv', rel_heights = c(1, -0.1, 1)))
+(ele.legend2 <- plot_grid(ele.legend1, NULL, mge.legend, ncol=3, rel_widths=c(1, -.5, 1)))
+
+n_row = 5
+year.legend <- make_legend(data=tree.years, x='pos', y='tree.tip.label', fill='collection_year', title='Year', colors=year.colors, nrow=n_row, legend.direction='horizontal', byrow=T)
+plot_grid(year.legend)
+
+country.legend <- make_legend(data=tree.countries, x='pos', y='tree.tip.label', fill='country', colors=country.colors, title='Country', nrow=n_row)
+plot_grid(country.legend)
+
+host.legend <- make_legend(data=tree.hosts, x='pos', y='tree.tip.label', fill='host', colors=host.colors, title='Host', nrow=n_row)
+plot_grid(host.legend)
+
+meta.legend <- plot_grid(year.legend, NULL, country.legend, NULL, host.legend, nrow=1, ncol=5, rel_widths=c(1, -.75, 1, -.5, 1), align='hv')
+```
+
+with legends
+```{r}
+par(xpd=NA, bg='transparent')
+gp7 <- plot_grid(gp6, NULL, ele.legend2, ncol=3, rel_widths=c(2, -.2, 1))
+gp8 <- plot_grid(gp7, NULL, meta.legend, nrow=3, rel_heights=c(2, -.2, 1))
+# cowplot::plot_grid(gp6, legend.genes, leg1, leg2, nrow=4, rel_heights = c(1, .25, .45, .75))
+ggsave(paste0('output/contig_plots/mcr_tree_window', window, '.pdf'), plot=gp8, width=35, height=21, units = 'cm', limitsize = F)
+ggsave(paste0('output/contig_plots/mcr_tree_window', window, '.png'), width=35, height=21, units = 'cm', limitsize = F)
+dev.off()
+```

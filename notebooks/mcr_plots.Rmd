@@ -2,7 +2,7 @@
 title: "ALDEX2 + PCA plots and tree of assembed mcr contigs"
 output:
   html_document:
-    df_print: paged
+    pdf_print: paged
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
@@ -31,7 +31,6 @@ library(kableExtra)
 library(ggtreeExtra)
 library(ggnewscale)
 library(ggpubr)
-library(genbankr)
 library(cowplot)
 
 countryRegions <- rworldmap::countryRegions
@@ -48,7 +47,7 @@ source(paste(path, 'src/pca_plots.R', sep='/'))
 # ALDex2 + PCA plots
 ## Load data
 ```{r}
-file <- "data/mcr_pivot_runs.csv"
+file <- paste0(path, "data/mcr_pivot_runs.csv")
 mcr.data <- read.csv(file, check.names = F)
 row.names(mcr.data) <- mcr.data$run_accession
 mcr.data$collection_date <- as.Date(mcr.data$collection_date, '%Y-%m-%d')
@@ -89,9 +88,9 @@ Let's create some plots.
 (ga.country <- aldex2_plot(country.res, parts=parts, title='Significant *mcr* levels in countries', effect_zones = T))
 (ga.year <- aldex2_plot(year.res, parts=parts, title='Significant *mcr* levels in years', effect_zones = T))
 
-ggsave(plot=ga.host, filename='output/mw_plots/hosts.pdf')
-ggsave(plot=ga.country, filename='output/mw_plots/country.pdf')
-ggsave(plot=ga.year, filename='output/mw_plots/year.pdf')
+ggsave(plot=ga.host, filename=paste0(path, 'output/mw_plots/hosts.pdf'))
+ggsave(plot=ga.country, filename=paste0(path, 'output/mw_plots/country.pdf'))
+ggsave(plot=ga.year, filename=paste0(path, 'output/mw_plots/year.pdf'))
 
 ```
 
@@ -99,9 +98,9 @@ ggsave(plot=ga.year, filename='output/mw_plots/year.pdf')
 We do PCA on CLR levels.
 
 ```{r}
-scores <- read.csv('data/mcr_pca_scores_mcr1-9.csv', stringsAsFactors = F, check.names = FALSE)
-loadings <- read.csv('data/mcr_pca_loadings_mcr1-9.csv', stringsAsFactors = F, check.names = FALSE)
-exp.var <- read.csv('data/mcr_pca_expvar_mcr1-9.csv', stringsAsFactors = F, check.names = FALSE)
+scores <- read.csv(paste0(path, 'data/mcr_pca_scores_mcr1-9.csv'), stringsAsFactors = F, check.names = FALSE)
+loadings <- read.csv(paste0(path, 'data/mcr_pca_loadings_mcr1-9.csv'), stringsAsFactors = F, check.names = FALSE)
+exp.var <- read.csv(paste0(path, 'data/mcr_pca_expvar_mcr1-9.csv'), stringsAsFactors = F, check.names = FALSE)
 
 colnames(loadings)[1] <- 'PC'
 colnames(scores)[6:14] <- paste('PC', 1:9, sep='')
@@ -136,16 +135,16 @@ scree.plot <- ggplot() +
   ylab('Explained Variance (%)') +
   theme_bw()
 
-ggsave('output/biplots/scree.pdf', plot=scree.plot)
+ggsave(paste0(path, 'output/biplots/scree.pdf'), plot=scree.plot)
 scree.plot
 ```
 
-biplots
-
+significant group labels
 ```{r}
 axis.labels <- exp.var %>% mutate(
   label = str_c(`Principal Component`, ' (', round(`Explained Variance`, digits=1), '%)'),
-) %>% select(label)
+)
+axis.labels <- dplyr::select(axis.labels, label)
 rownames(axis.labels) <- exp.var$`Principal Component`
 
 sig.country <- country.res %>%
@@ -153,21 +152,21 @@ sig.country <- country.res %>%
   mutate(
     country = str_replace(str_replace(conditions.A.vs.B, ' vs Other', ''), 'Other vs ', '')
   ) %>%
-  select(country) %>% distinct()
+  dplyr::select(country) %>% distinct()
 
 sig.hosts <- host.res %>%
   filter(we.eBH < 0.05) %>%
   mutate(
     host = str_replace(str_replace(conditions.A.vs.B, ' vs Other', ''), 'Other vs ', '')
   ) %>%
-  select(host) %>% distinct()
+  dplyr::select(host) %>% distinct()
 
 sig.years <- year.res %>%
   filter(we.eBH < 0.05) %>%
   mutate(
     year = str_replace(str_replace(conditions.A.vs.B, ' vs Other', ''), 'Other vs ', '')
   ) %>%
-  select(year) %>% distinct()
+  dplyr::select(year) %>% distinct()
 
 
 ```
@@ -188,7 +187,7 @@ g.pca.country1 <- make_biplot(
   scores_palette = gg_color_hue(n=length(sig.country$country))
   )
 
-ggsave(plot = g.pca.country1, filename = 'output/biplots/biplot_country.pdf', width=15, height=15, units='cm')
+ggsave(plot = g.pca.country1, filename = paste0(path, 'output/biplots/biplot_country.pdf'), width=15, height=15, units='cm')
 
 g.pca.host1 <- make_biplot(
   scores = scores, 
@@ -202,7 +201,7 @@ g.pca.host1 <- make_biplot(
   xlabel=xlabel, ylabel=ylabel,
   scores_palette = gg_color_hue(n=length(as.list(sig.hosts)$host))
   )
-ggsave(plot = g.pca.host1, filename = 'output/biplots/biplot_host.pdf', width=15, height=15, units='cm')
+ggsave(plot = g.pca.host1, filename = paste0(path, 'output/biplots/biplot_host.pdf'), width=15, height=15, units='cm')
 
 g.pca.year1 <- make_biplot(
   scores = scores, 
@@ -215,8 +214,9 @@ g.pca.year1 <- make_biplot(
   xlabel=xlabel, ylabel = ylabel,
   scores_palette = gg_color_hue(n=length(as.list(sig.years)$year))
   )
-ggsave(plot = g.pca.year1, filename = 'output/biplots/biplot_year.pdf', width=15, height=15, units='cm')
+ggsave(plot = g.pca.year1, filename = paste0(path, 'output/biplots/biplot_year.pdf'), width=15, height=15, units='cm')
 ```
+
 
 ### Advanced biplots
 color by host, shape by year, ellipse for regions
@@ -230,8 +230,8 @@ g.pca.all <- make_adv_biplot(
   x='PC1', y='PC2', xlabel = xlabel, ylabel=ylabel, scores_text = T,
   title = 'PCA biplot'
 ) + labs(tag='d') + theme_update(plot.tag=element_text(face='bold', size=14, color='black'))
-ggsave(plot = g.pca.all, filename='output/biplots/biplot_sig_all.pdf', width=30, height=20, units='cm')
-ggsave(plot = g.pca.all, filename='output/biplots/biplot_sig_all.png', width=30, height=20, units='cm')
+ggsave(plot = g.pca.all, filename=paste0(path, 'output/biplots/biplot_sig_all.pdf'), width=30, height=20, units='cm')
+ggsave(plot = g.pca.all, filename=paste0(path, 'output/biplots/biplot_sig_all.png'), width=30, height=20, units='cm')
 g.pca.all
 
 ```
@@ -246,8 +246,8 @@ g.pca.all <- make_adv_biplot(
   legend.key.size = unit(1, 'lines')
   ) + labs(tag='d') + theme_update(plot.tag=element_text(face='bold', size=14, color='black'))
 
-ggsave(plot = g.pca.all, filename='output/biplots/biplot_sig_all_legend.pdf', width=30, height=20, units='cm', limitsize = F)
-ggsave(plot = g.pca.all, filename='output/biplots/biplot_sig_all_legend.png', width=30, height=20, units='cm', limitsize = F)
+ggsave(plot = g.pca.all, filename=paste0(path, 'output/biplots/biplot_sig_all_legend.pdf'), width=30, height=20, units='cm', limitsize = F)
+ggsave(plot = g.pca.all, filename=paste0(path, 'output/biplots/biplot_sig_all_legend.png'), width=30, height=20, units='cm', limitsize = F)
 ```
 
 
@@ -258,8 +258,8 @@ p.mw <-  ggarrange(
   common.legend = T, legend='right',
   nrow = 1, labels='auto'
 )
-ggsave(plot = p.mw, filename='output/mw_plots/combined.pdf', width = 210, height = 297/3, units = "mm")
-ggsave(plot = p.mw, filename='output/mw_plots/combined.png', width = 210, height = 297/3, units = "mm")
+ggsave(plot = p.mw, filename=paste0(path, 'output/mw_plots/combined.pdf'), width = 210, height = 297/3, units = "mm")
+ggsave(plot = p.mw, filename=paste0(path, 'output/mw_plots/combined.png'), width = 210, height = 297/3, units = "mm")
 p.mw
 ```
 
@@ -269,8 +269,8 @@ ga.pca.combi <- ggarrange(
   ncol=1, labels='auto'
 )
 
-ggsave(plot = ga.pca.combi, filename='output/biplots/biplot_combined.pdf', height = 210*2, width = 297, units = "mm")
-ggsave(plot = ga.pca.combi, filename='output/biplots/biplot_combined.png', height = 210*2, width = 297, units = "mm")
+ggsave(plot = ga.pca.combi, filename=paste0(path, 'output/biplots/biplot_combined.pdf'), height = 210*2, width = 297, units = "mm")
+ggsave(plot = ga.pca.combi, filename=paste0(path, 'output/biplots/biplot_combined.png'), height = 210*2, width = 297, units = "mm")
 
 ga.pca.combi
 ```
@@ -286,9 +286,45 @@ p.combi <- ggarrange(
   labels='auto'
 )
 p.combi
-ggsave(filename='output/mw_biplot_combined.pdf', plot=p.combi, width=210, height=297, units='mm')
-ggsave(filename='output/mw_biplot_combined.png', plot=p.combi, width=210, height=297, units='mm')
+ggsave(filename=paste0(path, 'output/mw_biplot_combined.pdf'), plot=p.combi, width=210, height=297, units='mm')
+ggsave(filename=paste0(path, 'output/mw_biplot_combined.png'), plot=p.combi, width=210, height=297, units='mm')
 ```
+
+#### Biplot for human samples only
+```{r}
+
+g.pca.human.year <- make_biplot(
+  scores = scores[scores$host == 'Homo sapiens', ], 
+  loadings = loadings2, 
+  filterby ='collection_year', 
+  color='collection_year', 
+  x='PC1', y='PC2', 
+  sig_val = as.list(sig.years)$year, 
+  scores_text=T,
+  xlabel=axis.labels['PC1', 'label'], ylabel=axis.labels['PC2', 'label'],
+  #scores_palette = gg_color_hue(n=length(as.list(sig.years)$year)),
+  scores_alpha = .5,
+  arrows_size = 4
+  )
+
+g.pca.human.country <- make_biplot(
+  scores = scores[scores$host == 'Homo sapiens', ], 
+  loadings = loadings2, 
+  filterby ='country', 
+  color='country', 
+  x='PC1', y='PC2', 
+  sig_val = as.list(sig.country)$country, 
+  scores_text=T,
+  scores_alpha=.55,
+  xlabel=axis.labels['PC1', 'label'], ylabel=axis.labels['PC2', 'label']
+  #scores_palette = gg_color_hue(n=length(as.list(sig.country)$country)),
+  )
+
+g.pca.human <- ggarrange(g.pca.human.country, g.pca.human.year, nrow=1, ncol=2, labels='auto') 
+annotate_figure(g.pca.human, top=text_grob("PCA biplot of human samples", size=14))
+ggsave(filename=paste0(path, 'output/biplots/human_samples.png'), width=297, height=120, units='mm')  
+```
+
 
 ### PCA without mcr-1 and mcr-9
 ```{r}
@@ -335,7 +371,7 @@ g.pca.year2.8 <- make_biplot(
   shape=16, 
   scores_text=T,
   xlabel=axis.labels2.8['PC1', ], ylabel=axis.labels2.8['PC2', ],
-  title='PCA biplot of mcr-2 to mcr-8 colored by year',
+  #title='PCA biplot of mcr-2 to mcr-8 colored by year',
   scores_palette = gg_color_hue(n=length(as.list(sig.years)$year))
   )
 g.pca.country2.8 <- make_biplot(
@@ -348,7 +384,7 @@ g.pca.country2.8 <- make_biplot(
   shape=16, 
   scores_text=T,
   xlabel=axis.labels2.8['PC1', ], ylabel=axis.labels2.8['PC2', ],
-  title='PCA biplot of mcr-2 to mcr-8 colored by country',
+  #title='PCA biplot of mcr-2 to mcr-8 colored by country',
   scores_palette = gg_color_hue(n=length(as.list(sig.country)$country))
   )
 g.pca.host2.8 <- make_biplot(
@@ -361,12 +397,14 @@ g.pca.host2.8 <- make_biplot(
   shape=16, 
   scores_text=T,
   xlabel=axis.labels2.8['PC1', ], ylabel=axis.labels2.8['PC2', ],
-  title='PCA biplot of mcr-2 to mcr-8 colored by host',
+  #title='PCA biplot of mcr-2 to mcr-8 colored by host',
   scores_palette = gg_color_hue(n=length(as.list(sig.hosts)$host))
   )
 
-ggpubr::ggarrange(g.pca.year2.8, g.pca.country2.8, g.pca.host2.8, ncol=1, nrow=3)
-ggsave(filename='output/biplots/biplot_combined_mcr-2-8.pdf', height = 210*2, width = 297, units = "mm")
+g.pca.mcr2.8 <- ggpubr::ggarrange(g.pca.year2.8, g.pca.country2.8, g.pca.host2.8, ncol=1, nrow=3, labels='auto')
+annotate_figure(g.pca.mcr2.8, top=text_grob("PCA biplot of mcr-2 to mcr-8", size=14))
+ggsave(filename='output/biplots/biplot_combined_mcr-2-8.pdf', height = 400, width = 150, units = "mm")
+ggsave(filename='output/biplots/biplot_combined_mcr-2-8.png', height = 400, width = 150, units = "mm")
 ```
 
 
@@ -452,19 +490,6 @@ if(update_meta){
 
 ## Make color palettes
 ```{r color_palettes}
-# function for creating color palettes for categorical groups
-make_palette <- function(n, palette=NA){
-  
-  if (is.na(palette)) {
-    hues = seq(15, 375, length = n + 1)
-    colors = hcl(h=hues, l=65, c=100)[1:n]
-  } else {
-    getPalette <- colorRampPalette(brewer.pal(8, palette))
-    colors = as.vector(getPalette(n)) 
-  }
-  return(colors)
-}
-
 white.color <- '#FFFFFF'
 
 # mcr gene colors
@@ -705,7 +730,7 @@ ele.df <- df %>% filter(method != 'blastn') %>% mutate(qseqid=str_c(run_accessio
 count.df <- mcr.df %>% inner_join(ele.df, by='qseqid') %>%
   group_by(gene.x, method, window) %>%
   tally() %>%
-  plyr::rename('gene' = 'gene.x', 'Occurence' = 'n')
+  dplyr::rename('gene' = 'gene.x', 'Occurence' = 'n')
 
 g.eles <- ggplot(count.df) +
   geom_tile(aes(x=gene, y=as.factor(window), fill=Occurence)) + 
@@ -763,7 +788,7 @@ df[df$window == window, ] %>% filter(method!='blastn') %>%
 
 ## Tree plot 
 ```{r tree_plot}
-gt <- ggtree(tree)#, layout = 'circular')
+gt <- ggtree(tree) + coord_cartesian(clip='off') + theme_tree2() #, layout = 'circular')
 gt1 <- gt %<+% tree.mcr.data + geom_tippoint(aes(x=x+1, color=gene), size=.75, alpha=.75, shape=15) +
   guides(color=guide_legend(override.aes = aes(size=2)))
 gt1
@@ -818,10 +843,16 @@ Adjust the widths of facets
 
 p5 <- ggplot_gtable(ggplot_build(p4))
 
+# adjust tree size
+p5.c <- p5$layout$l[grep('panel-1-1', p5$layout$name)]
+p5$widths[p5.c] = p5$widths[p5.c] * 0.6
+
+# adjust tile panels
 panels <- c('panel-1-2', 'panel-1-3', 'panel-1-4', 'panel-1-5')
 for (panel in panels) {
   p5.col<-p5$layout$l[grep(panel, p5$layout$name)]
-  p5$widths[p5.col] = p5$widths[p5.col]*0.075
+  p5$widths[p5.col] = p5$widths[p5.col]*0.06
+  
 }
 
 grid::grid.newpage()
@@ -879,6 +910,9 @@ Add to tree facets
 ```{r facet_genomic_bg}
 LINE_WIDTH=1
 
+xmin <- min(sample.df.mcr$qstart2 - window) - 1
+xmax <- max(sample.df.mcr$qend2 + window) + 1
+
 p6 <- facet_plot(
   p4 + new_scale_color(),
   panel='Genomic background',
@@ -920,28 +954,32 @@ p9 <- facet_plot(
   mapping = aes(x=qstart2, xend=qend2, y=y, yend=y, color=gene),
   size = LINE_WIDTH
 ) +
-  scale_color_manual('MGE', values=mge.colors)
-
+  scale_color_manual('MGE', values=mge.colors)+ 
+  xlim_expand(c(xmin, xmax), 'Genomic background')
 
 # Adjust widths
 gp6 <- ggplot_gtable(ggplot_build(p9))
 
+# adjust tree size
+gp6.c <- gp6$layout$l[grep('panel-1-1', gp6$layout$name)]
+gp6$widths[gp6.c] = gp6$widths[gp6.c] * 0.5
+
+# adjust tiles
 panels <- c('panel-1-2', 'panel-1-3', 'panel-1-4', 'panel-1-5')
 for (panel in panels) {
   gp6.col<-gp6$layout$l[grep(panel, gp6$layout$name)]
-  gp6$widths[gp6.col] = gp6$widths[gp6.col]*0.08
+  gp6$widths[gp6.col] = gp6$widths[gp6.col]*0.11
 }
+
+#adjust genomic bg panel
+gp6.c <- gp6$layout$l[grep('panel-1-6', gp6$layout$name)]
+gp6$widths[gp6.c] = gp6$widths[gp6.c] * 1.5
 
 grid::grid.newpage()
 grid::grid.draw(gp6)
 
-```
-
-save without legends
-```{r}
 ggsave(plot = gp6, filename = paste0('output/contig_plots/mcr_tree_window', window, '_noleg.pdf'), width=35, height=21, units = 'cm', limitsize = F)
 ```
-
 
 ## Legends
 ```{r MAKE_LEGENDS}
@@ -985,11 +1023,11 @@ plot_grid(plasmid.legend)
 mge.legend <- make_legend(data=filter(sample.df.ele, type=='MGE'), colors=mge.colors, x='qseqid', y='window', fill='sseqid', title='MGE') 
 plot_grid(mge.legend)
 
-(ele.legend1 <- plot_grid(mcr.legend, NULL, plasmid.legend, ncol=1, align='hv', rel_heights = c(1, -0.1, 1)))
-(ele.legend2 <- plot_grid(ele.legend1, NULL, mge.legend, ncol=3, rel_widths=c(1, -.5, 1)))
+(ele.legend1 <- plot_grid(mcr.legend, NULL, plasmid.legend, ncol=1, align='hv', rel_heights = c(1, -0.5, 1)))
+(ele.legend2 <- plot_grid(ele.legend1, NULL, mge.legend, ncol=3, rel_widths=c(1, -.5, .25), align='vh'))
 
 n_row = 5
-year.legend <- make_legend(data=tree.years, x='pos', y='tree.tip.label', fill='collection_year', title='Year', colors=year.colors, nrow=n_row, legend.direction='horizontal', byrow=T)
+year.legend <- make_legend(data=tree.years, x='pos', y='tree.tip.label', fill='collection_year', title='Year', colors=year.colors, nrow=n_row, legend.direction='horizontal', byrow=F)
 plot_grid(year.legend)
 
 country.legend <- make_legend(data=tree.countries, x='pos', y='tree.tip.label', fill='country', colors=country.colors, title='Country', nrow=n_row)
@@ -998,16 +1036,20 @@ plot_grid(country.legend)
 host.legend <- make_legend(data=tree.hosts, x='pos', y='tree.tip.label', fill='host', colors=host.colors, title='Host', nrow=n_row)
 plot_grid(host.legend)
 
-meta.legend <- plot_grid(year.legend, NULL, country.legend, NULL, host.legend, nrow=1, ncol=5, rel_widths=c(1, -.75, 1, -.5, 1), align='hv')
+(meta.legend <- plot_grid(year.legend, NULL, country.legend, NULL, host.legend, nrow=1, ncol=5, rel_widths=c(1, -.75, 1, -.5, 1), align='hv'))
 ```
 
 with legends
 ```{r}
 par(xpd=NA, bg='transparent')
-gp7 <- plot_grid(gp6, NULL, ele.legend2, ncol=3, rel_widths=c(2, -.2, 1))
-gp8 <- plot_grid(gp7, NULL, meta.legend, nrow=3, rel_heights=c(2, -.2, 1))
+gp7 <- plot_grid(gp6, NULL, ele.legend2, ncol=3, rel_widths=c(2, -.55, 1))
+gp8 <- plot_grid(gp7, NULL, meta.legend, nrow=3, rel_heights=c(2, -.15, 1))
 # cowplot::plot_grid(gp6, legend.genes, leg1, leg2, nrow=4, rel_heights = c(1, .25, .45, .75))
-ggsave(paste0('output/contig_plots/mcr_tree_window', window, '.pdf'), plot=gp8, width=35, height=21, units = 'cm', limitsize = F)
-ggsave(paste0('output/contig_plots/mcr_tree_window', window, '.png'), width=35, height=21, units = 'cm', limitsize = F)
+pdf_file <- paste0('output/contig_plots/mcr_tree_window', window, '_scale.pdf')
+ggsave(pdf_file, plot=gp8, width=35, height=21, units = 'cm', limitsize = F)
+# knitr::plot_crop(pdf_file)
+png_file <- paste0('output/contig_plots/mcr_tree_window', window, '.png')
+ggsave(png_file, plot=gp8, width=35, height=21, units = 'cm', limitsize = F)
+magick::image_write(magick::image_trim(magick::image_read(png_file)), png_file)
 dev.off()
 ```

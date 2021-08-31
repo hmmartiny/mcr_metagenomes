@@ -1,4 +1,4 @@
-add_arrows <- function(g, loadings, add_text=T, new_scale=T) {
+add_arrows <- function(g, loadings, add_text=T, new_scale=T, size=3) {
   
   # add new coloring scheme for arrows
   if (new_scale) {
@@ -19,7 +19,7 @@ add_arrows <- function(g, loadings, add_text=T, new_scale=T) {
     g <- g + geom_text(
       data = loadings,
       mapping = aes(x=PC1, y=PC2, label=name, color=name),
-      size = 3, 
+      size = size, 
       nudge_x=-0.5,
       nudge_y=-1,
       vjust="inward",
@@ -101,7 +101,7 @@ add_scores <- function(g, scores, x, y, color=NA, shape=16, add_text=F, alpha=.5
         geom_text_repel(
           data = sample_score,
           mapping = aes_string(x=x, y=y, color=color, label=color),
-          size = 2,
+          size = 2, alpha=alpha,
           box.padding = unit(.75, "lines"),
           max.overlaps = Inf
         )
@@ -169,7 +169,7 @@ draw_ellipses <- function(g, scores, groupby, x, y, scale=5.991, n_min=3){
 }
 
 
-make_biplot <- function(scores, loadings, filterby, color, x, y, sig_values=c(), ellipses=NA, shape=NULL, scores_text=F, arrows_text=T, title=waiver(), xlabel=waiver(), ylabel=waiver(), ellipses_nmin=3, scores_palette=NA) {
+make_biplot <- function(scores, loadings, filterby, color, x, y, sig_values=c(), ellipses=NA, shape=NULL, scores_text=F, arrows_text=T, title=waiver(), xlabel=waiver(), ylabel=waiver(), ellipses_nmin=3, scores_palette=NA, scores_alpha=.5, arrows_size=3) {
   g <- ggplot()
   
   if (!is.na(ellipses)) {
@@ -182,7 +182,8 @@ make_biplot <- function(scores, loadings, filterby, color, x, y, sig_values=c(),
     g <- add_scores(
       g = g, 
       scores = scores[!(scores[[filterby]] %in% sig_values), ], 
-      x=x, y=y, color=NA, 
+      x=x, y=y, 
+      color=NA, alpha = scores_alpha,
       new_scale=T
     )
     
@@ -190,7 +191,8 @@ make_biplot <- function(scores, loadings, filterby, color, x, y, sig_values=c(),
     g <- add_scores(
       g = g, 
       scores = scores[(scores[[filterby]] %in% sig_values), ], 
-      x=x, y=y, color=color,  alpha = .75, shape=shape, 
+      x=x, y=y, 
+      color=color, alpha = scores_alpha, shape=shape, 
       new_scale=T, add_text = scores_text,
       color_wheel = scores_palette
     )
@@ -199,14 +201,14 @@ make_biplot <- function(scores, loadings, filterby, color, x, y, sig_values=c(),
     g <- add_scores(
       g = g, 
       scores = scores, 
-      x=x, y=y, color=color, shape=shape,
+      x=x, y=y, color=color, shape=shape, alpha = scores_alpha,
       new_scale=T, add_text=scores_text,
       color_wheel = scores_palette
     )
   }
   
   # add arrows
-  g <- add_arrows(g = g, loadings = loadings, add_text=arrows_text, new_scale=T)
+  g <- add_arrows(g = g, loadings = loadings, add_text=arrows_text, new_scale=T, size=arrows_size)
   
   g <- g + 
     theme_bw() + 
@@ -219,7 +221,7 @@ make_biplot <- function(scores, loadings, filterby, color, x, y, sig_values=c(),
   return(g)
 }
 
-make_adv_biplot <- function(scores, loadings, sigs, x, y, color, ellipses, shape, scores_text=F, arrows_text=T, title=waiver(), xlabel=waiver(), ylabel=waiver(), ellipses_nmin=3, alpha=.5) {
+make_adv_biplot <- function(scores, loadings, sigs, x, y, color, ellipses, shape, scores_text=F, arrows_text=T, title=waiver(), xlabel=waiver(), ylabel=waiver(), ellipses_nmin=3, alpha=.5, arrow_size=3) {
   
   g <- ggplot()
   
@@ -245,7 +247,7 @@ make_adv_biplot <- function(scores, loadings, sigs, x, y, color, ellipses, shape
     g = g,
     scores = scores[is.na(scores[['color']]),],
     x = x, y = y,
-    shape='shape',
+    shape='shape', alpha=alpha,
     new_scale=T
   ) + scale_color_discrete(guide = 'none')
 
@@ -253,7 +255,7 @@ make_adv_biplot <- function(scores, loadings, sigs, x, y, color, ellipses, shape
     g = g,
     scores = scores[is.na(scores[['shape']]),],
     x = x, y = y,
-    color='color',
+    color='color', alpha=alpha,
     add_text = scores_text
   ) + scale_shape(guide='none')
   
@@ -261,14 +263,14 @@ make_adv_biplot <- function(scores, loadings, sigs, x, y, color, ellipses, shape
   g <- add_scores(
     g = g,
     scores = filter(scores, !is.na(color), !is.na(shape)),
-    x=x, y=y, color='color', shape='shape',
+    x=x, y=y, color='color', shape='shape', alpha=alpha,
     new_scale=F, add_text=scores_text, 
     color_label = str_to_title(str_replace(color, '_', ' ')), 
     n_colors = length(sigs[[color]])
   )
   
   # add arrows
-  g <- add_arrows(g = g, loadings = loadings, add_text=arrows_text, new_scale=T)
+  g <- add_arrows(g = g, loadings = loadings, add_text=arrows_text, new_scale=T, size=arrow_size)
   
   g <- g + 
     theme_bw()
@@ -279,4 +281,17 @@ make_adv_biplot <- function(scores, loadings, sigs, x, y, color, ellipses, shape
     )
   
   return(g)
+}
+
+# function for creating color palettes for categorical groups
+make_palette <- function(n, palette=NA){
+  
+  if (is.na(palette)) {
+    hues = seq(15, 375, length = n + 1)
+    colors = hcl(h=hues, l=65, c=100)[1:n]
+  } else {
+    getPalette <- colorRampPalette(brewer.pal(8, palette))
+    colors = as.vector(getPalette(n)) 
+  }
+  return(colors)
 }
