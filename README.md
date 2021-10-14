@@ -1,4 +1,6 @@
 # Large-scale metagenomic analysis of mobilized colistin resistance genes
+[![DOI](https://zenodo.org/badge/401698965.svg)](https://zenodo.org/badge/latestdoi/401698965)
+
 Code and notebooks to rerun analysis and regenerate figures in the paper titled ["Global distribution of mcr gene variants in 214,095 metagenomes"](https://www.researchsquare.com/article/rs-640935/v1).
 
 ## Overview
