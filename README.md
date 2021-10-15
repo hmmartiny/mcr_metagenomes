@@ -10,5 +10,5 @@ Code and notebooks to rerun analysis and regenerate figures in the paper titled 
 
 The notebooks imports functions from files in the [`src/`](src/) folder:
 * [`src/funcs.py`](src/funcs.py): functions for retrieving data from database and compositional functions.
-* [`src/dataviz/dataviz.py`](src/dataviz/dataviz.py):
-* [`src/dataviz/maps.py`](src/dataviz/maps.py):
+* [`src/dataviz/dataviz.py`](src/dataviz/dataviz.py): functions for creating various figures.
+* [`src/dataviz/maps.py`](src/dataviz/maps.py): functions for creating maps.
