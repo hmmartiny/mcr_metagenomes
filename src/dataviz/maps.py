@@ -11,6 +11,9 @@ from matplotlib.colors import Normalize
 import matplotlib as mpl
 import cartopy.crs as ccrs
 
+import argparse
+import gc
+
 parpath = os.path.abspath(
         os.path.join(
             os.path.dirname(__file__), os.path.pardir
@@ -20,8 +23,10 @@ sys.path.append(
     parpath
 )
 from country_lookup import CountryLookup
-from dataviz.dataviz import gene_formatter
-countryLocator = CountryLookup(data_dir=os.path.join(parpath, os.path.pardir, 'data', 'country_shapes'))
+from src.dataviz.dataviz import gene_formatter
+from funcs import alr, closure,count_matrix, tot_alr
+
+# countryLocator = CountryLookup(data_dir=os.path.join(parpath, os.path.pardir, 'data', 'country_shapes'))
 
 def plot_choropleth(df, column, left_on='country_name', cbar_label='', figsize=(10, 7), title='', how='inner', ax=None, vmin=None, vmax=None, na_val=None, **args):
     """Not in use anymore, should use the function `cartography_map` in the CountryLookup class"""
@@ -77,7 +82,7 @@ def plot_choropleth(df, column, left_on='country_name', cbar_label='', figsize=(
         plt.close(fig)
         return fig
 
-def get_geo(cm, col='country'):
+def get_geo(cm, countryLocator, col='country'):
 
     cm.reset_index(inplace=True)
     cm[['geo', 'geotype']] = cm[col].apply(
@@ -86,7 +91,7 @@ def get_geo(cm, col='country'):
 
     return cm
 
-def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5, cbar_height=.2, subtitles_kwargs={}, ytot='Total ALR', small_scale=10, title_kwargs={}, plot_args={}, plot_water=True):
+def plot_maps(cm, cm_tot, countryLocator, left_on='country', figsize=(20, 14), ncols=4, nrows=5, cbar_height=.2, subtitles_kwargs={}, ytot='Total ALR', small_scale=10, title_kwargs={}, plot_args={}, plot_water=True):
     
     vmax = max(cm.max().max().item(), cm_tot.max().max().item())
     vmin = max(cm.min().min().item(), cm_tot.min().min().item())
@@ -96,8 +101,8 @@ def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5,
     genes[ncols:] = genes[ncols:][::-1]
 
     # get geo
-    cm = get_geo(cm, col = left_on)
-    cm_tot = get_geo(cm_tot, col=left_on)
+    cm = get_geo(cm, countryLocator, col = left_on)
+    cm_tot = get_geo(cm_tot, countryLocator, col=left_on)
     
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     gs = fig.add_gridspec(ncols=ncols, nrows=nrows, height_ratios=np.repeat(1, nrows-1).tolist() + [cbar_height])
@@ -129,7 +134,7 @@ def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5,
             plot_water=plot_water,
             vmax=vmax,
             vmin=vmin,
-            scale=small_scale
+            scale=small_scale,
             **plot_args
         )
         
@@ -159,14 +164,14 @@ def plot_maps(cm, cm_tot, left_on='country', figsize=(20, 14), ncols=4, nrows=5,
     plt.close(fig)
     return fig
 
-def plot_single_map(cm, valcol, countrycol='country', figsize=(20, 12), cbar_height=.2, plot_water=True, vmin=None, vmax=None):
+def plot_single_map(cm, valcol, countryLocator, countrycol='country', figsize=(20, 12), cbar_height=.2, plot_water=True, vmin=None, vmax=None):
 
     cm = cm.copy()
     if cm[valcol].isna().any():
         cm.dropna(subset=[valcol])
 
     # get geo
-    cm = get_geo(cm, col=countrycol)
+    cm = get_geo(cm, countryLocator, col=countrycol)
 
     # define fig
     fig = plt.figure(figsize=figsize, constrained_layout=True)
@@ -232,3 +237,114 @@ def make_colorbar(ax, cmap, norm, orientation='horizontal', label=''):
     )
     
     cb1.set_label(label)
+
+def make_maps(df, dest, countryLocator, context='paper'):
+    mdf = df.melt(
+        ['run_accession', 'host', 'country','collection_date', 'collection_year', 'bacterial_fragment', 'tax_id'], 
+        var_name='gene', 
+        value_name='fragmentCountAln'
+    )
+    gc.collect()
+    del df
+
+    cm_country = count_matrix(
+        df = mdf.query("collection_year >= 2000").replace(['NULL', 'not applicable', 'not available'], pd.NA),
+        groupby_col=['country', 'gene'],
+        index_pivot = 'country',
+        column_pivot = 'gene'
+        ).merge(
+            mdf.groupby('country').agg(
+                {'bacterial_fragment': 'sum'}
+            ) / 1e6,
+            right_index=True, left_index=True
+    )
+
+    cm_country.rename(index={
+        'USA':'United States of America',
+        'North Macedonia': 'Macedonia',
+        'Tanzania': 'United Republic of Tanzania',
+        'Czech Republic': 'Czechia'
+    }, inplace=True)
+
+
+    cm_country_alr = cm_country.apply(alr, axis=1)#.replace([np.inf, -np.inf])
+
+    gc.collect()
+
+    cm_country_alr_total = pd.DataFrame(cm_country.apply(tot_alr, axis=1))
+    cm_country_alr_total.rename(columns={0: 'Total ALR'}, inplace=True)
+
+    cm_country_alr_total.reset_index(inplace=True)
+    cm_country_alr_total[['geo', 'geotype']] = cm_country_alr_total['country'].apply(
+        lambda x: countryLocator.name2geo(x) if not isinstance(x, float) else pd.NA
+    ).apply(pd.Series)
+    cm_country_alr_total.set_index('country', inplace=True)
+
+    gc.collect()
+    
+    cm_country_alr.reset_index(inplace=True)
+    cm_country_alr[['geo', 'geotype']] = cm_country_alr['country'].apply(
+        lambda x: countryLocator.name2geo(x) if not isinstance(x, float) else pd.NA
+    ).apply(pd.Series)
+    cm_country_alr.set_index('country', inplace=True)
+
+    gc.collect()
+    
+
+    del cm_country
+
+    maps = plot_maps(
+        cm = cm_country_alr.select_dtypes('float'),
+        cm_tot = cm_country_alr_total.select_dtypes('float'),
+        countryLocator = countryLocator,
+        ncols=5,nrows=6,
+        left_on='country'
+    )
+
+    gc.collect()
+    del countryLocator
+    del cm_country_alr
+    del cm_country_alr_total
+
+    # maps.savefig(os.path.join(dest, f'maps_{context.upper()}.pdf'))
+    maps.savefig(os.path.join(dest, f'maps_{context.upper()}.png'))
+
+    gc.collect()
+    del maps
+
+def parse_args():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument(
+        '-d', '--dest',
+        type=str,
+        required=True,
+        help='destionation folder to save figures in',
+        dest='dest'
+    )
+
+    parser.add_argument(
+        '-f', '--file',
+        type=str,
+        required=True,
+        help='mcr file',
+        dest='file'
+    )
+
+    return parser.parse_args()
+if __name__ == '__main__':
+
+    gc.collect()
+    args = parse_args()
+
+    df = pd.read_csv(args.file, parse_dates=['collection_date'])
+    gc.collect()
+    if not 'collection_year' in df.columns:
+        df['collection_year'] = df['collection_date'].dt.year
+    gc.collect()
+
+    countryLocator = CountryLookup(data_dir=os.path.join(parpath, os.path.pardir, 'data', 'country_shapes'))    
+    make_maps(df, dest=args.dest, countryLocator=countryLocator)
+
+    gc.collect()
+    del countryLocator

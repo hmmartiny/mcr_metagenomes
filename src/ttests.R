@@ -1,4 +1,8 @@
 library(gt)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ALDEx2)
 
 run_aldex2 <- function(data, parts, conditions, match) {
   
@@ -6,7 +10,7 @@ run_aldex2 <- function(data, parts, conditions, match) {
   parts <- parts[parts %in% colnames(data)]
   
   # select composition and transpose to match aldex2 requirements for data input
-  data.t <- round(t(select(data, parts)))
+  data.t <- round(t(dplyr::select(data, parts)))
   
   # create conditions list
   conditions <- mapvalues(
@@ -36,7 +40,7 @@ run_aldex2 <- function(data, parts, conditions, match) {
 
 full_aldex2 <- function(data, parts, condition_column, verbose=F) {
   
-  all_conditions <- select(data, condition_column)
+  all_conditions <- dplyr::select(data, condition_column)
   condition_counts <- as.data.frame(table(all_conditions))
   unique_conditions <- condition_counts[condition_counts$Freq > 1, 'all_conditions']
   n_conditions <- length(unique_conditions)
@@ -82,8 +86,8 @@ analyse_aldex <- function(data, parts, totcol, baccol, conds, alpha = 0.05) {
     print(i)
     # subset to only run on significant res from previous iteration 
     if (i > 1) {
-      sig.data.a <- abs.res %>% filter(we.eBH < alpha) %>% select(conditionA) %>% distinct() %>% filter(conditionA != 'Other')
-      sig.data.b <- abs.res %>% filter(we.eBH < alpha) %>% select(conditionB) %>% distinct() %>% filter(conditionB != 'Other')
+      sig.data.a <- abs.res %>% filter(we.eBH < alpha) %>% dplyr::select(conditionA) %>% distinct() %>% filter(conditionA != 'Other')
+      sig.data.b <- abs.res %>% filter(we.eBH < alpha) %>% dplyr::select(conditionB) %>% distinct() %>% filter(conditionB != 'Other')
       sig.cond <- c(sig.data.a$conditionA, sig.data.b$conditionB)
       data <- data %>%
         filter(condition_column %in% sig.cond)

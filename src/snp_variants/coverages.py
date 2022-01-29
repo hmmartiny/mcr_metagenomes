@@ -68,3 +68,50 @@ def filter_coverage(covDF, min_cov, min_depth, min_pval, min_qident, cov_col='Te
     ]
 
     return filtDF
+
+def get_coverage_stats(row):
+    
+    runCount = row['runid'].nunique()
+    
+    # coverage
+    meanCoverage = row['Template_Coverage'].mean()
+    maxCoverage = row['Template_Coverage'].max()
+    medianCoverage = row['Template_Coverage'].median()
+    minCoverage = row['Template_Coverage'].min()
+    
+    # depths
+    meanDepth = row['Depth'].mean()
+    maxDepth = row['Depth'].max()
+    medianDepth = row['Depth'].median()
+    minDepth = row['Depth'].min()
+    
+    res = pd.DataFrame(
+        [
+            runCount, 
+            meanCoverage, 
+            minCoverage, 
+            medianCoverage, 
+            maxCoverage, 
+            meanDepth, 
+            minDepth,
+            medianDepth,
+            maxDepth
+        ]
+    ).T
+
+    res.rename(
+        columns={
+            0: 'No. of metagenomes',
+            1: 'Mean template coverage',
+            2: 'Minimum template coverage',
+            3: 'Median template coverage',
+            4: 'Maximum template cpverage',
+            5: 'Mean depth of coverage',
+            6: 'Minimum depth of coverage',
+            7: 'Median depth of coverage',
+            8: 'Maximum depth of coverage'
+        }, 
+        inplace=True
+    )
+
+    return res

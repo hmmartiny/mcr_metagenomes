@@ -36,7 +36,7 @@ library(cowplot)
 countryRegions <- rworldmap::countryRegions
 
 
-path='~/repos/mcr_metagenomes/'
+path='~/repos/mcr_metagenomes'
 knitr::opts_knit$set(root.dir = normalizePath(path)) 
 
 source(paste(path, 'src/extra_funcs.R', sep='/'))
@@ -47,7 +47,7 @@ source(paste(path, 'src/pca_plots.R', sep='/'))
 # ALDex2 + PCA plots
 ## Load data
 ```{r}
-file <- paste0(path, "data/mcr_pivot_runs.csv")
+file <- file.path(path, "data/mcr_pivot_runs.csv")
 mcr.data <- read.csv(file, check.names = F)
 row.names(mcr.data) <- mcr.data$run_accession
 mcr.data$collection_date <- as.Date(mcr.data$collection_date, '%Y-%m-%d')
@@ -269,8 +269,8 @@ ga.pca.combi <- ggarrange(
   ncol=1, labels='auto'
 )
 
-ggsave(plot = ga.pca.combi, filename=paste0(path, 'output/biplots/biplot_combined.pdf'), height = 210*2, width = 297, units = "mm")
-ggsave(plot = ga.pca.combi, filename=paste0(path, 'output/biplots/biplot_combined.png'), height = 210*2, width = 297, units = "mm")
+ggsave(plot = ga.pca.combi, filename=file.path(path, 'output/biplots/biplot_combined.pdf'), height = 210*2, width = 297, units = "mm")
+ggsave(plot = ga.pca.combi, filename=file.path(path, 'output/biplots/biplot_combined.png'), height = 210*2, width = 297, units = "mm")
 
 ga.pca.combi
 ```
@@ -286,8 +286,8 @@ p.combi <- ggarrange(
   labels='auto'
 )
 p.combi
-ggsave(filename=paste0(path, 'output/mw_biplot_combined.pdf'), plot=p.combi, width=210, height=297, units='mm')
-ggsave(filename=paste0(path, 'output/mw_biplot_combined.png'), plot=p.combi, width=210, height=297, units='mm')
+ggsave(filename=file.path(path, 'output/mw_biplot_combined.pdf'), plot=p.combi, width=210, height=297, units='mm')
+ggsave(filename=file.path(path, 'output/mw_biplot_combined.png'), plot=p.combi, width=210, height=297, units='mm')
 ```
 
 #### Biplot for human samples only
@@ -322,7 +322,7 @@ g.pca.human.country <- make_biplot(
 
 g.pca.human <- ggarrange(g.pca.human.country, g.pca.human.year, nrow=1, ncol=2, labels='auto') 
 annotate_figure(g.pca.human, top=text_grob("PCA biplot of human samples", size=14))
-ggsave(filename=paste0(path, 'output/biplots/human_samples.png'), width=297, height=120, units='mm')  
+ggsave(filename=file.path(path, 'output/biplots/human_samples.png'), width=297, height=120, units='mm')  
 ```
 
 
@@ -412,7 +412,7 @@ ggsave(filename='output/biplots/biplot_combined_mcr-2-8.png', height = 400, widt
 ## Load data and create dataframes for plotting
 From blast+MEFinder+plasmidFinder
 ```{r df_MAIN, message=FALSE, warning=FALSE}
-df <- read_csv('data/flanks/all_flanks.csv') %>%
+df <- read_csv(file.path(path, 'data/flanks/all_flanks.csv')) %>%
   mutate(
     gene_variant = case_when(
       method == 'blastn' ~ str_split(sseqid, '_', simplify = T)[, 1],
@@ -433,8 +433,7 @@ df <- read_csv('data/flanks/all_flanks.csv') %>%
   mutate(
     contig_number=paste(node, node_number, sep='_'),
     qlen = qend - qstart + 1
-  ) %>%
-  select(-c(node, node_other))
+  ) 
 ```
 
 ```{r def_window}
@@ -442,7 +441,7 @@ window <- 21000
 ```
 
 ```{r df_KMA}
-(kmafile=paste0(path, 'data/flanks/all_flank_', window, '_1000.GeneMaskedFlank.fa.phy'))
+(kmafile=file.path(path, paste0('data/flanks/all_flank_', window, '_1000.GeneMaskedFlank.fa.phy')))
 temp_connection = file(kmafile, 'r')
 len = readLines(temp_connection, n=1)
 len = as.numeric(len)
@@ -483,7 +482,7 @@ if(update_meta){
 
   write_csv(metadata, file = 'data/contigs_metadata.csv')
   } else {
-    metadata <- read_csv('data/contigs_metadata.csv')   
+    metadata <- read_csv(file.path(path, 'data/contigs_metadata.csv'))
   }
 
 ```
@@ -543,6 +542,9 @@ for (i in 1:length(mges)) {
 
 ele.colors <- c(plasmid.colors, mge.colors)
 gen.colors <- c(mcr.gene.colors, plasmid.colors, mge.colors)
+
+# make italic labels for genes
+cursive_parts <- as.list(setNames(paste0("*mcr*-", 1:9), parts))
 
 ```
 
@@ -627,7 +629,7 @@ sample.df.ele <- df[df$window == as.character(window), ] %>%
     #window = as.integer(window)
     ) %>%
   left_join(
-    select(sample.df.mcr, qseqid, qstart, qend, qstart2, qend2, qmid, qlen), 
+    dplyr::select(sample.df.mcr, qseqid, qstart, qend, qstart2, qend2, qmid, qlen), 
     by='qseqid', 
     suffix=c('.ele', '.mcr')
   ) %>%
@@ -650,7 +652,7 @@ sample.df.ele <- df[df$window == as.character(window), ] %>%
       method == 'MEFinder' ~ 'MGE'
     )
   ) %>%
-  select(-c(qstart.mcr, qend.mcr, qmid, qlen.mcr)) %>%
+  dplyr::select(-c(qstart.mcr, qend.mcr, qmid, qlen.mcr)) %>%
   rowwise() %>%
   mutate(
     color = unlist(ele.colors)[gene], 
@@ -673,7 +675,7 @@ sample.df.contigs <- df %>% filter(
   )
 
 df.gene.arrows <- bind_rows(sample.df.contigs, sample.df.ele, sample.df.mcr) %>%
-  select(qseqid, gene, qstart2, qend2, type, color, alpha) 
+  dplyr::select(qseqid, gene, qstart2, qend2, type, color, alpha) 
 
 # merge tree tip labels
 df.gene.arrows.tree <- data.frame(tree$tip.label) %>%
@@ -703,20 +705,20 @@ for(i in 2:N_breaks){
 }
 
 g.contig_lengths <- df %>%
-  filter(method=='blastn') %>%
+  filter(method=='blastn', !is.na(gene)) %>%
   mutate(
     length_bin = cut(as.integer(contig_length), breaks=breaks, labels=break_labels)
   ) %>%
   group_by(gene, length_bin) %>% tally() %>%
   ggplot() +
   geom_col(aes(x=length_bin, y=n, fill=gene)) +
-  scale_fill_manual('Gene', values = mcr.gene.colors) +
+  scale_fill_manual('Gene', values = mcr.gene.colors[parts], labels=cursive_parts, na.translate=F) +
   theme_classic() + 
-  theme(axis.text.x = element_text(angle=90)) +
+  theme(axis.text.x = element_text(angle=90), legend.text = ggtext::element_markdown()) +
   ylab('Count') + xlab('Contig length')
 g.contig_lengths
 
-ggsave(plot=g.contig_lengths, file='output/contig_plots/contig_lengths.pdf', width=29.7, height=21, units='cm', limitsize = F)
+ggsave(plot=g.contig_lengths, file=file.path(path, 'output/contig_plots/contig_lengths.pdf'), width=29.7, height=21, units='cm', limitsize = F)
 
 ```
 
@@ -737,13 +739,17 @@ g.eles <- ggplot(count.df) +
   geom_text(aes(x=gene, y=as.factor(window), label=Occurence),  color='white') + 
   facet_grid(.~method) +
   ylab('maximum flank size') +
-  theme_classic()
-ggsave('output/contig_plots/flank_ele_sizes.pdf')
+  theme_classic() +
+  scale_x_discrete(labels=cursive_parts) +
+  theme(axis.text.x = ggtext::element_markdown())
+  
+ggsave(file.path(path, 'output/contig_plots/flank_ele_sizes.pdf'))
 ```
 
 ```{r}
 ggpubr::ggarrange(g.contig_lengths, g.eles, ncol = 1, nrow=2, labels='auto')
-ggsave('output/contig_plots/contig_flank_ele.pdf', width=25, height=25, units = 'cm')
+ggsave(file.path(path, 'output/contig_plots/contig_flank_ele.pdf'), width=25, height=25, units = 'cm')
+ggsave(file.path(path, 'output/contig_plots/contig_flank_ele.png'), width=25, height=25, units = 'cm')
 ```
 
 
@@ -762,9 +768,11 @@ g.contig_occurrence <- df[df$window == window, ] %>% filter(method!='blastn') %>
   geom_tile(aes(y=gene.y, x=gene.x, fill=n), color='grey') +
   geom_text(aes(y=gene.y, x=gene.x, label = n), color='white') +
   facet_grid(. ~ method.x, scales = 'free_x') + 
+  scale_y_discrete(labels=cursive_parts) +
   theme_classic() +
   theme(
     axis.text.x = element_text(angle=90),
+    axis.text.y = ggtext::element_markdown()
     ) +
   labs(
     y = expression(paste(italic('mcr'), ' gene')),
@@ -772,7 +780,7 @@ g.contig_occurrence <- df[df$window == window, ] %>% filter(method!='blastn') %>
   )
 
 g.contig_occurrence
-ggsave(paste0('output/contig_plots/element_occurence_window', window, '.pdf'), plot=g.contig_occurrence, width=20, height=10, units='cm')
+ggsave(file.path(path, paste0('output/contig_plots/element_occurence_window', window, '.pdf')), plot=g.contig_occurrence, width=20, height=10, units='cm')
 ```
 
 ```{r}
@@ -788,10 +796,8 @@ df[df$window == window, ] %>% filter(method!='blastn') %>%
 
 ## Tree plot 
 ```{r tree_plot}
-gt <- ggtree(tree) + coord_cartesian(clip='off') + theme_tree2() #, layout = 'circular')
-gt1 <- gt %<+% tree.mcr.data + geom_tippoint(aes(x=x+1, color=gene), size=.75, alpha=.75, shape=15) +
-  guides(color=guide_legend(override.aes = aes(size=2)))
-gt1
+gt <- ggtree(tree) + coord_cartesian(clip='off') + geom_treescale(label="k-mer distance", fontsize=2) #+ theme_tree2() #, layout = 'circular')
+gt
 ```
 
 ## Tree facets
@@ -803,7 +809,7 @@ p1 <- facet_plot(
   geom = geom_tile,
   data = tree.genes
 ) + 
-  scale_fill_manual('Gene', values=mcr.gene.colors) + 
+  scale_fill_manual('Gene', values=mcr.gene.colors[parts]) +
   new_scale_fill()
 
 p2 <- facet_plot(
@@ -878,7 +884,7 @@ grid::grid.draw(p5)
 #         )
 # pg
 
-pdf('output/contig_plots/mcr_arrows_individual.pdf', onefile=T)
+pdf(file.path(path, 'output/contig_plots/mcr_arrows_individual.pdf'), onefile=T)
 for(gene in sort(unique(df.gene.arrows.tree[df.gene.arrows.tree$type=='mcr', 'gene']))){
 
   qseqids <- unique(df.gene.arrows.tree[df.gene.arrows.tree$gene == gene, 'qseqid'])
@@ -978,7 +984,7 @@ gp6$widths[gp6.c] = gp6$widths[gp6.c] * 1.5
 grid::grid.newpage()
 grid::grid.draw(gp6)
 
-ggsave(plot = gp6, filename = paste0('output/contig_plots/mcr_tree_window', window, '_noleg.pdf'), width=35, height=21, units = 'cm', limitsize = F)
+ggsave(plot = gp6, filename = file.path(path, paste0('output/contig_plots/mcr_tree_window', window, '_noleg.pdf')), width=35, height=21, units = 'cm', limitsize = F)
 ```
 
 ## Legends
@@ -988,11 +994,11 @@ LEGEND_TITLE <- 8
 LEGEND_TEXT <- 6
 LEGEND_SIZE = 0.5
 
-make_legend <- function(data, x, y, fill, colors, title='', legend_size=0.5, legend_text=6, legend_title=8, byrow=F, nrow=NULL, ncol=NULL, legend.direction='vertical', legend.box='vertical', title.position='top'){
+make_legend <- function(data, x, y, fill, colors, labels=waiver(), title='', legend_size=0.5, legend_text=6, legend_title=8, byrow=F, nrow=NULL, ncol=NULL, legend.direction='vertical', legend.box='vertical', title.position='top'){
   
   g.leg <- ggplot(data=data, mapping=aes_string(x=x, y=y, fill=fill)) +
     geom_tile() + 
-    scale_fill_manual(title, values=colors) +
+    scale_fill_manual(title, values=colors, labels=labels, na.translate=F) +
     guides(
       fill=guide_legend(
         override.aes = list(size=legend_size),
@@ -1003,7 +1009,7 @@ make_legend <- function(data, x, y, fill, colors, title='', legend_size=0.5, leg
       )
     ) + 
     theme(
-      legend.text = element_text(size=legend_text),
+      legend.text = ggtext::element_markdown(size=legend_text),
       legend.title = element_text(size=legend_title),
       legend.direction = legend.direction, 
       legend.box = legend.box,
@@ -1014,7 +1020,7 @@ make_legend <- function(data, x, y, fill, colors, title='', legend_size=0.5, leg
   return(leg)
 }
 
-mcr.legend <- make_legend(data=tree.genes, colors=mcr.gene.colors, x='pos', y='tree.tip.label', fill='gene', title = 'Gene')
+mcr.legend <- make_legend(data=tree.genes, colors=mcr.gene.colors[parts], labels=cursive_parts, x='pos', y='tree.tip.label', fill='gene', title = 'Gene')
 plot_grid(mcr.legend)
 
 plasmid.legend <- make_legend(data=filter(sample.df.ele, type=='Plasmid'), colors=plasmid.colors, x='qseqid', y='window', fill='sseqid', title='Plasmid')
@@ -1027,16 +1033,21 @@ plot_grid(mge.legend)
 (ele.legend2 <- plot_grid(ele.legend1, NULL, mge.legend, ncol=3, rel_widths=c(1, -.5, .25), align='vh'))
 
 n_row = 5
-year.legend <- make_legend(data=tree.years, x='pos', y='tree.tip.label', fill='collection_year', title='Year', colors=year.colors, nrow=n_row, legend.direction='horizontal', byrow=F)
+year.legend <- make_legend(data=tree.years, x='pos', y='tree.tip.label', fill='collection_year', title='Year', colors=year.colors[unique(tree.years$collection_year)], nrow=n_row, legend.direction='horizontal', byrow=F)
 plot_grid(year.legend)
 
-country.legend <- make_legend(data=tree.countries, x='pos', y='tree.tip.label', fill='country', colors=country.colors, title='Country', nrow=n_row)
+country.legend <- make_legend(data=tree.countries, x='pos', y='tree.tip.label', fill='country', colors=country.colors[unique(tree.countries$country)], title='Country', nrow=n_row)
 plot_grid(country.legend)
 
-host.legend <- make_legend(data=tree.hosts, x='pos', y='tree.tip.label', fill='host', colors=host.colors, title='Host', nrow=n_row)
+host.legend <- make_legend(data=tree.hosts, x='pos', y='tree.tip.label', fill='host', colors=host.colors[unique(tree.hosts$host)], title='Host', nrow=n_row)
 plot_grid(host.legend)
 
-(meta.legend <- plot_grid(year.legend, NULL, country.legend, NULL, host.legend, nrow=1, ncol=5, rel_widths=c(1, -.75, 1, -.5, 1), align='hv'))
+#meta.legend <- plot_grid(
+#  year.legend, country.legend, host.legend,
+#  ncol=1, align='h'
+#)
+
+(meta.legend <- plot_grid(year.legend, NULL, country.legend, NULL, host.legend, nrow=1, ncol=5, rel_widths=c(1, -.75, .7, -.5, .7), align='hv'))
 ```
 
 with legends
@@ -1045,11 +1056,187 @@ par(xpd=NA, bg='transparent')
 gp7 <- plot_grid(gp6, NULL, ele.legend2, ncol=3, rel_widths=c(2, -.55, 1))
 gp8 <- plot_grid(gp7, NULL, meta.legend, nrow=3, rel_heights=c(2, -.15, 1))
 # cowplot::plot_grid(gp6, legend.genes, leg1, leg2, nrow=4, rel_heights = c(1, .25, .45, .75))
-pdf_file <- paste0('output/contig_plots/mcr_tree_window', window, '_scale.pdf')
+pdf_file <- file.path(path, paste0('output/contig_plots/mcr_tree_window', window, '_scale.pdf'))
 ggsave(pdf_file, plot=gp8, width=35, height=21, units = 'cm', limitsize = F)
 # knitr::plot_crop(pdf_file)
-png_file <- paste0('output/contig_plots/mcr_tree_window', window, '.png')
+png_file <- file.path(path, paste0('output/contig_plots/mcr_tree_window', window, '.png'))
 ggsave(png_file, plot=gp8, width=35, height=21, units = 'cm', limitsize = F)
 magick::image_write(magick::image_trim(magick::image_read(png_file)), png_file)
 dev.off()
 ```
+
+# Variant tree
+```{r}
+# load data
+dataPath <- '/Users/hanmar/repos/mcr_metagenomes/data/snp_data/chosen_cov90.0_depth5_qident90_pvalue0.05_AD5_AF0.9'
+
+
+treeFile <- file.path(dataPath, 'all_unique_consensus_found.aln.tree')
+tree <- treeio::read.newick(treeFile, node.label='label')
+
+occurencesFile <- file.path(dataPath, 'new_variant_overview.csv')
+occurences <- read.csv(occurencesFile, row.names=1)
+
+snp.distsFile <- file.path(dataPath, 'all_unique_consensus_found.aln.snp_dists.tsv')
+snp.dists <- read.csv(snp.distsFile, sep='\t', row.names=1) %>%
+  rownames_to_column('tip')
+
+metacovFile <- file.path(dataPath, '..', '..', 'mcr_res_fixed.tsv')
+metacov <- read.csv(metacovFile, row.names=1) %>%
+  mutate(
+    country=case_when(country == "" ~ "Unknown", TRUE ~ country),
+    year=case_when(is.na(year) ~ 0, TRUE ~ year),
+    host=case_when(host == "" ~ "Unknown", TRUE ~ host),
+    ) %>%
+  distinct(run_accession, host, country, year)
+```
+
+```{r}
+
+allele.pattern <- "(mcr-\\d(_|\\.)\\d+)"
+variant.pattern <- "v\\d+"
+
+# format data
+tree.data <- as.tibble(list(tip=tree$tip.label)) %>%
+  mutate(
+    SeqType=case_when(
+      grepl('v\\d+', tip) ~ 'Variant',
+      grepl('mcr-', tip) ~ 'Template',
+      TRUE ~ 'Variant'
+    ),
+    Variant_no = str_extract(tip, variant.pattern),
+    gene = str_extract(tip,'mcr-\\d+'),
+    template=stringr::str_extract(tip, allele.pattern)
+  ) %>%
+  fill(gene) %>%
+  fill(template) %>%
+  mutate(
+    variant=case_when(
+      !is.na(Variant_no) ~ str_c(template, Variant_no, sep='.'),
+      TRUE ~ template
+    )
+  )
+
+occurencesSum <- occurences %>%
+  mutate(occurence=rowSums(.)) %>%
+  dplyr::select(occurence) %>%
+  rownames_to_column('tip') %>%
+  mutate(gene=str_extract(tip,'mcr-\\d+'))
+
+snp.dists.melted <- snp.dists %>% 
+  pivot_longer(!tip, names_to='sequence', values_to = 'distance')
+
+
+occurences.meta <- occurences %>%
+  rownames_to_column('tip') %>%
+  pivot_longer(!tip, names_to='run_accession') %>%
+  left_join(dplyr::select(metacov, c(run_accession, country, host, year)), by='run_accession')
+
+occCountry <- occurences.meta %>%
+  group_by(country, tip) %>%
+  dplyr::summarise(occ=sum(value)) %>%
+  filter(occ > 0) %>%
+  mutate(logOcc = log(occ))
+
+occHost <- occurences.meta %>%
+  group_by(host, tip) %>%
+  dplyr::summarise(occ=sum(value)) %>%
+  filter(occ > 0) %>%
+  mutate(logOcc = log(occ))
+
+occYear <- occurences.meta %>%
+  dplyr::group_by(year, tip) %>%
+  dplyr::summarise(occ=sum(value)) %>%
+  filter(occ > 0) %>%
+  mutate(logOcc = log(occ))
+
+```
+
+
+```{r}
+parameters <- unlist(strex::str_extract_numbers(dataPath, decimals = T))
+cov_parameters1 <- paste("Template Coverage:", parameters[1], ", Depth of Coverage:", parameters[2])
+cov_parameters2 <- paste("Query Identity:", parameters[3], ", P-value:", parameters[4])
+snp_parameters <- paste("SNP AD:", parameters[5], ", SNP AF:", parameters[6])
+caption <- paste("**Minimum thresholds**:", cov_parameters1, cov_parameters2, snp_parameters, sep='<br>')
+```
+
+```{r}
+# plot
+(p <- ggtree(tree) %<+% tree.data +
+  geom_tippoint(aes(color=gene, shape=SeqType)) +
+  geom_tiplab(aes(label=variant), size=1.5, align = F, linesize = .1) +
+    geom_treescale(fontsize=2, label='substitutions per site') +
+   scale_color_manual(labels=cursive_parts, values=mcr.gene.colors[parts]) +
+   theme(legend.text = ggtext::element_markdown())
+)
+(p2 <- p + geom_fruit(
+  data=occurencesSum,
+  mapping=aes(x=occurence, y=tip, fill=gene),
+  geom=geom_bar,
+  stat='identity',
+  orientation='y',
+  offset = .15,
+  pwidth = .2,
+  axis.params = list(axis='x', text.size=2, title="Sequence count", vjust=1, title.size=2.5, title.height=.02),
+  grid.params=list(alpha=.5)
+))
+ggsave(plot=p2, filename=file.path(dataPath, 'tree_counts.png'), width=5, height=10)
+
+(psd <- ggplot(snp.dists.melted) +
+  geom_tile(aes(x=tip, y=sequence, fill=distance)) +
+  geom_text(aes(x=tip, y=sequence, label=distance), size=1, color='white') +
+  theme(
+  axis.text.x = element_text(angle=90, size=6),
+  axis.text.y = element_text(size=6)
+  )
+)
+ggsave(plot=psd, filename=file.path(dataPath, 'snp_dists.png'), width=10, height=10)
+
+p4 <- p2 + new_scale_fill() + geom_fruit(
+  mapping=aes(y=tip, x=as.factor(year), fill=occ),
+  data=occYear,
+  geom=geom_tile, 
+  offset=.05,
+  axis.params = list(axis='x', text.size=2, text.angle=-90, hjust=-.1, title='Sampling year',title.size=2.5, title.height=.03)
+) + 
+  geom_fruit(
+    mapping=aes(y=tip, x=country, fill=occ),
+    data=occCountry,
+    geom=geom_tile, 
+    offset=.01,
+    pwidt = .4,
+    axis.params = list(axis='x', text.size=2, text.angle=-90, hjust=-.1, title='Sampling location',title.size=2.5, title.height=.03)
+  ) +
+  geom_fruit(
+    mapping=aes(y=tip, x=host, fill=occ),
+    data=occHost,
+    geom=geom_tile, 
+    offset=.01,
+    pwidth = .5,
+    axis.params = list(
+      axis='x', text.size=2, 
+      text.angle=-90, hjust=-.1, 
+      title='Sampling source',
+      title.size=2.5, 
+      title.height=.03
+      )
+  ) +
+  scale_fill_viridis_c(
+    'Occurence', 
+    option = 'C', 
+    direction = -1,
+    trans='log',
+    breaks=c(1, 2, 3, 5, 10, 25, 100)
+  ) +
+  coord_cartesian(clip = 'off') +
+  theme_tree(
+    plot.margin=margin(6, 6, 80, 6)
+    ) +
+  labs(caption = caption) +
+  theme(
+    plot.caption=ggtext::element_markdown(hjust=0)
+  )
+ggsave(plot=p4, filename=file.path(dataPath, 'tree_snpdists_samples_log.png'), height=10, width=20)
+```
+

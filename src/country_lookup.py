@@ -14,14 +14,18 @@ import shapely.geometry as sgeom
 from shapely.ops import unary_union
 from shapely.prepared import prep
 
-sys.path.append(
-    os.path.abspath(
+parpath = os.path.abspath(
         os.path.join(
             os.path.dirname(__file__), os.path.pardir
         )
     )
+
+sys.path.append(
+    parpath
 )
-from dataviz.dataviz import norm_cmap, make_colorbar
+
+
+from src.dataviz.dataviz import norm_cmap, make_colorbar
 
 
 class CountryLookup:

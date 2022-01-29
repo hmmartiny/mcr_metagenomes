@@ -1,10 +1,11 @@
 import glob
 import os
-from Bio import SeqIO
+from Bio import SeqIO, SeqRecord, Seq
 from Bio import Align
 from Bio.Align.Applications import MafftCommandline
 import subprocess
 import pandas as pd
+from collections import defaultdict
 
 def parse_fasta(fastaFile):
     record_dict = SeqIO.to_dict(
@@ -133,6 +134,7 @@ def sequence_cleaner(seqRecords, allele):
     uniqueRecords = {}
     uniqueSeqs2name = {}
     occurenceDF = pd.DataFrame(columns=list(seqRecords.keys()))
+    seqCounts = defaultdict(list)
 
     variantCount = 1
     for recid, record in seqRecords.items():
@@ -147,31 +149,92 @@ def sequence_cleaner(seqRecords, allele):
             
             uniqueSeqs2name[sequence] = seqName
         
-            record.id = seqName
-            record.name = seqName
-            record.description = seqName
-            uniqueRecords[seqName] = record
+            newRecord = SeqRecord.SeqRecord(id=seqName, name=seqName, description=seqName, seq=sequence)
+            uniqueRecords[seqName] = newRecord
         
         seqName = uniqueSeqs2name[sequence]
         occurenceDF.loc[seqName, recid] = 1
+
+        recordID = record.id
+        if ':' in recordID:
+            recordID = recordID.split(':')[0]
+            seqCounts[seqName].append(recordID)
         
     occurenceDF.fillna(0, inplace=True)
     occurenceDF.drop(columns=[allele], inplace=True)
     
-    return uniqueRecords,  occurenceDF
+    return uniqueRecords,  occurenceDF, seqCounts
         
 def fasttree(aln_file):
     outputFile = aln_file.replace('.fasta', '.tree')
 
-    cmd = f"FastTree -q -gtr -nt {aln_file} > {outputFile}"
-    subprocess.run(cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+    cmd = f"FastTree -gtr -nt {aln_file} > {outputFile}"
+    subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return outputFile
 
 def snp_dists(aln_file):
     outputFile = aln_file.replace('.fasta', '.snp_dists.tsv')
     cmd=f"snp-dists -q {aln_file} > {outputFile}"
     subprocess.run(cmd, shell=True)
+    return outputFile
 
-def viz_trees(path, dest, width=10, height=7):
+def viz_trees(treefile, snpdistfile, occfile, dest, width=10, height=7):
 
-    cmd = f"./plot_trees.R -width {width} -height {height} {path} {dest}"
-    subprocess.run(cmd, shell=True)
+    if not dest.endswith(os.sep):
+        dest += os.sep
+
+    cmd = f"/Users/hanmar/Documents/repos/mcr_metagenomes/src/snp_variants/plot_trees.R {treefile} {snpdistfile} {occfile} {dest}"
+    subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+def summarize_occurences(occurenceDF, genecol='index'):
+    sampleColumns = [c for c in occurenceDF.columns if not c.startswith('min')]
+
+    df = occurenceDF.copy().reset_index()
+    df['template'] = df[genecol].str.extract(r"(mcr-\d+(_|\.)\d+)", expand=True)[0]
+    df['gene'] = df[genecol].str.extract(r"(mcr-\d+)")
+    df['new_variant'] = df[genecol].str.contains(r"\.v\d?$").astype('int')
+    df['occurence'] = df[sampleColumns].sum(1)
+
+    summed = df.groupby(['gene', 'template']).agg(
+        {
+            'occurence': 'sum',
+            'index': 'count',
+            'new_variant': 'sum'
+        }
+    )
+    
+    s = df.groupby(['template', genecol]).agg({'occurence': 'sum'}).reset_index()
+    for g, gdata in s.groupby('template'):
+        # f = (gdata['occurence'] / gdata['occurence'].sum() * 100).round(2)
+        # l = f.astype('str').values.tolist()
+        # lf = "/".join(l)
+
+        # summed.loc[summed.index.get_level_values('template') == g, 'seq_frequency'] = lf
+        summed.loc[summed.index.get_level_values('template') == g, 'seq_count'] = "/".join(gdata['occurence'].astype('int').astype('str').values.tolist())
+
+    
+    summed.rename(
+        columns={
+            'new_variant': 'Number of new variants', 
+            'occurence': 'Total number of samples',
+            'index': 'Unique sequences',
+            'seq_count': 'Count of each allele (first is template)'
+            }, 
+        inplace=True
+    )
+        
+    return summed
+
+def summarize_seqCounts(seqCounts, flatten=True):
+
+    # flatten
+    if flatten:
+        seqCounts = {vk: vv for v in seqCounts.values() for vk, vv in v.items()}
+
+    res = pd.DataFrame()
+    # loop
+    for k, v in seqCounts.items():
+        res.loc[k, v]  = 1
+
+    res.fillna(0, inplace=True)
+    return res
