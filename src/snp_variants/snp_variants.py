@@ -68,11 +68,11 @@ def parse_args():
     )
 
     covArgs.add_argument(
-        '-MPv','--minimum-p-value',
+        '-MPv','--maximum-p-value',
         type=float,
         default=0.05,
-        help='Minimum p-value',
-        dest='min_pvalue'
+        help='Maximum p-value',
+        dest='max_pvalue'
     )
 
     covArgs.add_argument(
